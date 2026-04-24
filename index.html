@@ -446,6 +446,13 @@ function satisfied() {
   const s = new Set(COURSES.filter(c=>getState(c.course_id)>=1).map(c=>c.course_id));
   // Also count CHEM 111 / BIO 101 as mutual satisfiers for downstream prereqs
   if (s.has('CHEM 111') || s.has('BIO 101')) { s.add('CHEM 111'); s.add('BIO 101'); }
+  // Pre-RHIT credits count as satisfied from the start for the active plan
+  const plan = activePlan();
+  if (plan && plan.preRhit) {
+    plan.preRhit.forEach(c=>{ if(c.id) s.add(c.id); });
+    // CHEM 111 / BIO 101 mutual satisfaction applies to pre-RHIT too
+    if (s.has('CHEM 111') || s.has('BIO 101')) { s.add('CHEM 111'); s.add('BIO 101'); }
+  }
   return s;
 }
 
@@ -533,12 +540,14 @@ function buildCourseList() {
 
   // Gather unique course IDs referenced in this plan (core only, no elective slots)
   // Expand 'EM or ME 306' placeholder into both real course IDs so they appear in the list
+  // Exclude pre-RHIT courses — they don't need manual tracking by the student
+  const preRhitIdSet = new Set((plan.preRhit||[]).map(c=>c.id).filter(Boolean));
   const rawPlanIds = plan.schedule
     .filter(s=>s.slotType==='core'||s.slotType==='hssa'||s.slotType==='capstone')
     .map(s=>s.courseId).filter(id=>id&&!id.includes('Elective'));
   const planCourseIds = [...new Set(rawPlanIds.flatMap(id=>
     id==='EM or ME 306' ? ['EM 306','ME 306'] : [id]
-  ))];
+  ))].filter(id=>!preRhitIdSet.has(id));
 
   // Map courseId -> yearLabel from plan schedule
   const idToYear = {};
@@ -695,10 +704,12 @@ function generatePlan() {
     for (let qi=(yi===safeYi?sqIdx:0);qi<ALL_QUARTERS.length;qi++)
       allQ.push({year:yearNames[yi],quarter:ALL_QUARTERS[qi],yi,qi});
 
-  // Courses needing scheduling (state=0, excluding unchosen control)
+  // Courses needing scheduling (state=0, excluding unchosen control and pre-RHIT courses)
   // Plan CSVs use 'EM or ME 306' as placeholder — match against chosen control course
+  const preRhitIds = new Set((plan.preRhit||[]).map(c=>c.id).filter(Boolean));
   const needed = COURSES.filter(c=>{
     if (getState(c.course_id)!==0) return false;
+    if (preRhitIds.has(c.course_id)) return false; // already satisfied as pre-RHIT credit
     if (c.course_id==='EM 306' && controlChoice!=='EM 306') return false;
     if (c.course_id==='ME 306' && controlChoice!=='ME 306') return false;
     const inPlan = plan.schedule.some(s=>
@@ -708,10 +719,22 @@ function generatePlan() {
     return inPlan;
   });
 
-  // Electives still needed
+  // Electives still needed — count from plan schedule slots (authoritative),
+  // subtract how many the student has already completed.
   const reqs = activeElecReqs();
+  // Count elective slots defined in this plan's schedule
+  const planElecSlots = {};
+  plan.schedule.forEach(s=>{
+    if (!s.slotType.startsWith('elective')) return;
+    const k = s.slotType.replace('elective-','');
+    planElecSlots[k] = (planElecSlots[k]||0) + 1;
+  });
   const eLeft = {};
-  Object.keys(reqs).forEach(k => eLeft[k]=Math.max(0,reqs[k].count-(electiveDone[k]||0)));
+  // Use plan slot count as the total needed; fall back to reqs count if plan has no slots
+  Object.keys({...reqs,...planElecSlots}).forEach(k=>{
+    const totalNeeded = planElecSlots[k] || reqs[k]?.count || 0;
+    eLeft[k] = Math.max(0, totalNeeded - (electiveDone[k]||0));
+  });
 
   // Standard year lookup (from plan schedule)
   // Map both the real course IDs and the composite 'EM or ME 306' placeholder
@@ -794,8 +817,10 @@ function renderSuggest(schedule,startQ,startYr,target,delayed,plan) {
   schedule.forEach(q=>{(byYear[q.year]=byYear[q.year]||[]).push(q);});
 
   const totRem=schedule.reduce((s,q)=>s+q.credits,0);
+  const preRhitCr=(plan.preRhit||[]).reduce((s,c)=>s+(c.credits||0),0);
   const totDone=COURSES.reduce((s,c)=>getState(c.course_id)===2?s+c.credits:s,0)
-    +Object.entries(electiveDone).reduce((s,[k,v])=>s+v*4,0);
+    +Object.entries(electiveDone).reduce((s,[k,v])=>s+v*4,0)
+    +preRhitCr;
   const inProg=COURSES.filter(c=>getState(c.course_id)===1);
   const years=[...new Set(schedule.map(q=>q.year))];
   const extYears=years.filter(y=>getPlanYearNames().indexOf(y)>=4);
@@ -885,8 +910,10 @@ function unplacedCourses() {
   const placed=new Set();
   buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{if(s.kind==='course')placed.add(s.id);})));
   const plan=activePlan();
+  const preRhitIds=new Set((plan?.preRhit||[]).map(c=>c.id).filter(Boolean));
   return COURSES.filter(c=>{
     if (getState(c.course_id)>=1) return false;
+    if (preRhitIds.has(c.course_id)) return false;
     if (c.course_id==='EM 306'&&controlChoice!=='EM 306') return false;
     if (c.course_id==='ME 306'&&controlChoice!=='ME 306') return false;
     if (placed.has(c.course_id)) return false;

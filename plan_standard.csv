@@ -1,25 +1,25 @@
-plan_id,plan_name,total_credits,notes
-standard,Standard Plan,194,
-
-elective_requirements
-type,label,count
-hssa,HSSA Elective,6
-tech,Technical Elective,3
-ms,Math/Science Elective,1
-free,Free Elective,2
-
-pre_rhit_credits
-course_id,title,credits
-
-schedule
+plan_id,plan_name,total_credits,notes,,,
+standard,Standard Plan,194,,,,
+,,,,,,
+elective_requirements,,,,,,
+type,label,count,,,,
+hssa,HSSA Elective,6,,,,
+tech,Technical Elective,3,,,,
+ms,Math/Science Elective,1,,,,
+free,Free Elective,2,,,,
+,,,,,,
+pre_rhit_credits,,,,,,
+course_id,title,credits,,,,
+,,,,,,
+schedule,,,,,,
 year_num,year_label,quarter,course_id,title,credits,slot_type
 1,Freshman,Fall,MA 111,Calculus I,5,core
-1,Freshman,Fall,PH 111,Foundations of Science I,4,core
+1,Freshman,Fall,PH 111,Physics I,4,core
 1,Freshman,Fall,EM 104,Graphical Communications,2,core
 1,Freshman,Fall,RHIT 100,RH Success,1,core
 1,Freshman,Fall,HUM H190,First-Year Writing Seminar,4,hssa
 1,Freshman,Winter,MA 112,Calculus II,5,core
-1,Freshman,Winter,PH 112,Foundations of Science II,4,core
+1,Freshman,Winter,PH 112,Physics II,4,core
 1,Freshman,Winter,EM 121,Statics & Mechanics of Materials I,4,core
 1,Freshman,Winter,HSSA Elective,,4,elective-hssa
 1,Freshman,Spring,MA 113,Calculus III,5,core
