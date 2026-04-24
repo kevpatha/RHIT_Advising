@@ -16,12 +16,12 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def open_browser():
-    webbrowser.open(f"http://localhost:{PORT}/ME_planner.html")
+    webbrowser.open(f"http://localhost:{PORT}/index.html")
 
 
 if __name__ == "__main__":
     server = HTTPServer(("localhost", PORT), Handler)
-    print(f"Serving ME Planner at http://localhost:{PORT}/ME_planner.html")
+    print(f"Serving ME Planner at http://localhost:{PORT}/index.html")
     print("Press Ctrl+C to stop.")
     threading.Timer(0.5, open_browser).start()
     try:
