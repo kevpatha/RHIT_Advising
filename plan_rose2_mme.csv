@@ -1,10 +1,10 @@
 plan_id,plan_name,total_credits,notes
-rose2_mme,Rose² MME Plan,194,Up to 12 credits of 500-level courses can count toward both degrees (grade B or better required). Pre-RHIT credits cover MA 111/112 PH 111 CHEM 111 and electives.
+rose2_mme,Rose² MME Plan,194,Pre-RHIT credits (MA 111/112 PH 111 CHEM 111 and electives) count toward the 194 total. Up to 12 credits of 500-level MME core courses count toward both degrees (grade B or better required).
 
 elective_requirements
 type,label,count
-hssa,HSSA Elective,5
-tech,Technical Elective,3
+hssa,HSSA Elective,6
+tech,MME Core / Technical Elective,4
 ms,Math/Science Elective,1
 free,Free Elective,0
 
@@ -12,7 +12,7 @@ pre_rhit_credits
 course_id,title,credits
 MA 111,Calculus I,5
 MA 112,Calculus II,5
-PH 111,Foundations of Science I,4
+PH 111,Physics I,4
 CHEM 111,General Chemistry I,4
 HSSA Elective,,4
 Free Elective,,4
@@ -21,7 +21,7 @@ Free Elective,,4
 schedule
 year_num,year_label,quarter,course_id,title,credits,slot_type
 1,Year 1,Fall,MA 113,Calculus III,5,core
-1,Year 1,Fall,PH 112,Foundations of Science II,4,core
+1,Year 1,Fall,PH 112,Physics II,4,core
 1,Year 1,Fall,EM 121,Statics & Mechanics of Materials I,4,core
 1,Year 1,Fall,ME 123,Computer Programming,4,core
 1,Year 1,Fall,RHIT 100,RH Success,1,core
@@ -53,10 +53,10 @@ year_num,year_label,quarter,course_id,title,credits,slot_type
 3,Year 3,Fall,Math/Science Elective,,4,elective-ms
 3,Year 3,Winter,ME 328,Materials Engineering,4,core
 3,Year 3,Winter,MME Core Elective,,4,elective-tech
-3,Year 3,Winter,Technical Elective,,4,elective-tech
+3,Year 3,Winter,MME Core Elective,,4,elective-tech
 3,Year 3,Spring,ME 380,Machine Component Design,4,core
 3,Year 3,Spring,MME Core Elective,,4,elective-tech
-3,Year 3,Spring,MME Core Elective,,4,elective-tech
+3,Year 3,Spring,Technical Elective,,4,elective-tech
 4,Year 4,Fall,ME 470,Capstone Design I,4,capstone
 4,Year 4,Fall,HSSA Elective,,4,elective-hssa
 4,Year 4,Fall,HSSA Elective,,4,elective-hssa
