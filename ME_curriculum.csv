@@ -3,21 +3,21 @@ RHIT 100,RH Success,1,Freshman,Fall,,,
 MA 105,Calculus A,5,Freshman,Fall,,,Calculus ABC plan only
 MA 106,Calculus B,4,Freshman,Winter,,MA 105,Calculus ABC plan only
 MA 107,Calculus C,4,Freshman,Spring,,MA 106,Calculus ABC plan only
-MA 111,Calculus I,5,Freshman,Fall,,,
-MA 112,Calculus II,5,Freshman,Winter,,MA 111,
-MA 113,Calculus III,5,Freshman,Spring; Summer,,MA 112,Required summer course in Calculus ABC plan
-PH 111,Physics I,4,Freshman,Fall,,,
-PH 112,Physics II,4,Freshman,Winter,,PH 111; MA 111,
-EM 104,Graphical Communications,2,Freshman,Fall,,,
+MA 111,Calculus I,5,Freshman,Fall,Winter; Spring,,
+MA 112,Calculus II,5,Freshman,Winter,Spring,,
+MA 113,Calculus III,5,Freshman,Spring; Summer,Fall,,Required summer course in Calculus ABC plan
+PH 111,Physics I,4,Freshman,Fall,Winter,,
+PH 112,Physics II,4,Freshman,Winter,Spring,PH 111; MA 111,
+EM 104,Graphical Communications,2,Freshman,Fall,Winter; Spring,,
 EM 121,Statics & Mechanics of Materials I,4,Freshman,Winter,Fall; Spring,MA 111 or MA 105,
-EM 103,Introduction to Design,2,Freshman,Spring,,,
+EM 103,Introduction to Design,2,Freshman,Spring,Fall,,
 ME 123,Computer Programming,4,Freshman,Spring,Fall; Winter,,ME/PHOE major or permission of instructor
 HUM H190,First-Year Writing Seminar,4,Freshman,Fall; Winter; Spring,,,HSSA requirement
 CHEM 111,General Chemistry I,4,Freshman,Fall; Spring,,,
 BIO 101,Essential Biology,4,Sophomore; Freshman,Fall; Winter; Spring,,,
-MA 221,Matrix Algebra & Diff Eqns I,4,Sophomore,Fall,,MA 113,
-MA 222,Matrix Algebra & Diff Eqns II,4,Sophomore,Fall; Winter,,MA 221,
-MA 223,Engineering Statistics I,4,Sophomore,Spring; Fall,,MA 221,
+MA 221,Matrix Algebra & Diff Eqns I,4,Sophomore,Fall; Winter,Spring,MA 113,
+MA 222,Matrix Algebra & Diff Eqns II,4,Sophomore,Fall; Winter; Spring,,,MA 221,
+MA 223,Engineering Statistics I,4,Sophomore,Fall; Spring,Winter,MA 221,
 ES 201,Conservation & Accounting Principles,4,Sophomore,Fall,Winter,PH 111; EM 121; MA 113,Grade of C or better required for ES 312
 ES 213,Electrical Systems,4,Sophomore,Fall,Winter; Spring,PH 112; MA 113; EM 121,
 ES 214,Mechanical Systems,4,Sophomore,Winter,Spring,ME 123; MA 221; ES 201,

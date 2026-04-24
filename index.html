@@ -450,9 +450,16 @@ function satisfied() {
   const plan = activePlan();
   if (plan && plan.preRhit) {
     plan.preRhit.forEach(c=>{ if(c.id) s.add(c.id); });
-    // CHEM 111 / BIO 101 mutual satisfaction applies to pre-RHIT too
     if (s.has('CHEM 111') || s.has('BIO 101')) { s.add('CHEM 111'); s.add('BIO 101'); }
   }
+  // Plan-specific course equivalencies:
+  // Calculus ABC uses MA 105/106/107 in place of MA 111/112/113.
+  // Treat them as satisfying each other's prereq slots so downstream courses unlock.
+  if (s.has('MA 105') || s.has('MA 111')) { s.add('MA 105'); s.add('MA 111'); }
+  if (s.has('MA 106') || s.has('MA 112')) { s.add('MA 106'); s.add('MA 112'); }
+  if (s.has('MA 107') || s.has('MA 113')) { s.add('MA 107'); s.add('MA 113'); }
+  // ES 205 (Calculus ABC) is equivalent to ES 305 (Standard) for downstream prereqs
+  if (s.has('ES 205') || s.has('ES 305')) { s.add('ES 205'); s.add('ES 305'); }
   return s;
 }
 
@@ -700,9 +707,19 @@ function generatePlan() {
   const sqIdx = ALL_QUARTERS.indexOf(startQ);
   const allQ = [];
   const safeYi = Math.max(0, sy); // guard against -1 if year name not found
+  // Determine which quarters to iterate for scheduling.
+  // Summer is always included in the scheduling sequence if the active plan
+  // has any Summer slots (e.g. Calculus ABC's required MA 113 summer).
+  // This is independent of the showSummer display toggle.
+  const planHasSummer = plan.schedule.some(s=>s.quarter==='Summer');
+  const schedQuarters = (showSummer || planHasSummer) ? ALL_QUARTERS : ['Fall','Winter','Spring'];
   for (let yi=safeYi;yi<yearNames.length;yi++)
-    for (let qi=(yi===safeYi?sqIdx:0);qi<ALL_QUARTERS.length;qi++)
-      allQ.push({year:yearNames[yi],quarter:ALL_QUARTERS[qi],yi,qi});
+    for (let qi=0;qi<schedQuarters.length;qi++){
+      const quarter=schedQuarters[qi];
+      // For the starting year, skip quarters before the start quarter
+      if (yi===safeYi && ALL_QUARTERS.indexOf(quarter)<sqIdx) continue;
+      allQ.push({year:yearNames[yi],quarter,yi,qi:ALL_QUARTERS.indexOf(quarter)});
+    }
 
   // Courses needing scheduling (state=0, excluding unchosen control and pre-RHIT courses)
   // Plan CSVs use 'EM or ME 306' as placeholder — match against chosen control course
@@ -755,15 +772,22 @@ function generatePlan() {
   for (const {year,quarter,yi} of allQ) {
     const qCourses=[]; let qCr=0;
 
-    const eligible=remaining.filter(c=>availInQ(c,quarter)&&prereqsMet(c,sat));
+    // Eligible courses: available this quarter + prereqs met.
+    // No hard year gate — a student ready for upper-level work can take it early.
+    const eligible=remaining.filter(c=>
+      availInQ(c,quarter) && prereqsMet(c,sat)
+    );
     eligible.sort((a,b)=>{
       const aStd=stdYear[a.course_id]??99, bStd=stdYear[b.course_id]??99;
-      const aCur=yi;
-      const aLate=aStd<aCur?1:0, bLate=bStd<aCur?1:0;
+      // Overdue courses (plan year already passed) come first
+      const aLate=aStd<yi?1:0, bLate=bStd<yi?1:0;
       if (aLate!==bLate) return bLate-aLate;
+      // Then prefer courses from earlier plan years (stay close to standard sequence)
       if (aStd!==bStd) return aStd-bStd;
+      // Capstones last within a year
       if (a.type==='capstone'&&b.type!=='capstone') return 1;
       if (b.type==='capstone'&&a.type!=='capstone') return -1;
+      // Primary quarter before alternate
       return (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
     });
 
@@ -773,6 +797,12 @@ function generatePlan() {
       qCourses.push(c);
       qCr+=c.credits;
       sat=new Set([...sat,c.course_id]);
+      // Expand equivalencies so downstream prereqs unlock correctly
+      if(sat.has('MA 105')||sat.has('MA 111')){sat.add('MA 105');sat.add('MA 111');}
+      if(sat.has('MA 106')||sat.has('MA 112')){sat.add('MA 106');sat.add('MA 112');}
+      if(sat.has('MA 107')||sat.has('MA 113')){sat.add('MA 107');sat.add('MA 113');}
+      if(sat.has('ES 205')||sat.has('ES 305')){sat.add('ES 205');sat.add('ES 305');}
+      if(sat.has('CHEM 111')||sat.has('BIO 101')){sat.add('CHEM 111');sat.add('BIO 101');}
       remaining=remaining.filter(x=>x.course_id!==c.course_id);
       if (qCr>=target) break;
     }
@@ -824,7 +854,8 @@ function renderSuggest(schedule,startQ,startYr,target,delayed,plan) {
   const inProg=COURSES.filter(c=>getState(c.course_id)===1);
   const years=[...new Set(schedule.map(q=>q.year))];
   const extYears=years.filter(y=>getPlanYearNames().indexOf(y)>=4);
-  const quarters=showSummer?ALL_QUARTERS:['Fall','Winter','Spring'];
+  const planHasSummerCourses = plan.schedule.some(s=>s.quarter==='Summer' && s.slotType!=='elective');
+  const quarters=(showSummer||planHasSummerCourses)?ALL_QUARTERS:['Fall','Winter','Spring'];
 
   let html=`<div class="plan-container">`;
   html+=`<div class="summary-bar">
