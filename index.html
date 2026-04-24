@@ -387,6 +387,34 @@ async function loadAllData() {
       console.warn('Could not load', p.file, e);
     }
   }
+
+  // Supplement COURSES with any core/hssa/capstone course IDs that appear in plan
+  // schedules but have no entry in ME_curriculum.csv (e.g. MA 105/106/107, ES 205).
+  // This ensures they appear in the left panel and can be scheduled.
+  const knownIds = new Set(COURSES.map(c=>c.course_id));
+  Object.values(PLANS).forEach(plan=>{
+    (plan.schedule||[]).forEach(s=>{
+      if (!s.courseId || knownIds.has(s.courseId)) return;
+      if (!['core','hssa','capstone'].includes(s.slotType)) return;
+      if (s.courseId==='EM or ME 306') return; // composite placeholder, not a real course
+      // Build a minimal course object so it participates in scheduling
+      const primary = s.quarter==='Summer' ? 'Summer' : s.quarter;
+      COURSES.push({
+        course_id:    s.courseId,
+        title:        s.title || s.courseId,
+        credits:      s.credits || 4,
+        year:         s.yearLabel,
+        primary_quarter: primary,
+        alternate_quarters: '',
+        prerequisites: '',
+        notes:        'Added from plan schedule',
+        prereqGroups: [],
+        availableIn:  [primary],
+        primaryIn:    [primary],
+      });
+      knownIds.add(s.courseId);
+    });
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -436,10 +464,16 @@ function activeElecReqs() { return activePlan()?.electiveReqs || {}; }
 function getPlanYearNames() {
   const plan = activePlan();
   if (!plan) return YEAR_NAMES;
-  const ys = [...new Set(plan.schedule.map(s=>s.yearLabel))];
-  // Extend for 5th/6th year
+  // Preserve insertion order from plan schedule (year_num order)
+  const seen = new Set();
+  const ys = [];
+  plan.schedule.slice().sort((a,b)=>a.yearNum-b.yearNum).forEach(s=>{
+    if(s.yearLabel && !seen.has(s.yearLabel)){ seen.add(s.yearLabel); ys.push(s.yearLabel); }
+  });
   const base = ys.length > 0 ? ys : YEAR_NAMES.slice(0,4);
-  return [...base, '5th Year','6th Year'].slice(0,6);
+  // Append extended years if not already present
+  ['5th Year','6th Year'].forEach(y=>{ if(!seen.has(y)) base.push(y); });
+  return base.slice(0,6);
 }
 
 function displayQuarters() {
@@ -498,10 +532,13 @@ function buildCourseList() {
   if (!plan) return;
 
   // Gather unique course IDs referenced in this plan (core only, no elective slots)
-  const planCourseIds = [...new Set(
-    plan.schedule.filter(s=>s.slotType==='core'||s.slotType==='hssa'||s.slotType==='capstone')
-      .map(s=>s.courseId).filter(id=>id&&!id.includes('Elective')&&!id.includes('or ME'))
-  )];
+  // Expand 'EM or ME 306' placeholder into both real course IDs so they appear in the list
+  const rawPlanIds = plan.schedule
+    .filter(s=>s.slotType==='core'||s.slotType==='hssa'||s.slotType==='capstone')
+    .map(s=>s.courseId).filter(id=>id&&!id.includes('Elective'));
+  const planCourseIds = [...new Set(rawPlanIds.flatMap(id=>
+    id==='EM or ME 306' ? ['EM 306','ME 306'] : [id]
+  ))];
 
   // Map courseId -> yearLabel from plan schedule
   const idToYear = {};
@@ -653,17 +690,21 @@ function generatePlan() {
   const sy = yearNames.indexOf(startYr);
   const sqIdx = ALL_QUARTERS.indexOf(startQ);
   const allQ = [];
-  for (let yi=sy;yi<yearNames.length;yi++)
-    for (let qi=(yi===sy?sqIdx:0);qi<ALL_QUARTERS.length;qi++)
+  const safeYi = Math.max(0, sy); // guard against -1 if year name not found
+  for (let yi=safeYi;yi<yearNames.length;yi++)
+    for (let qi=(yi===safeYi?sqIdx:0);qi<ALL_QUARTERS.length;qi++)
       allQ.push({year:yearNames[yi],quarter:ALL_QUARTERS[qi],yi,qi});
 
   // Courses needing scheduling (state=0, excluding unchosen control)
+  // Plan CSVs use 'EM or ME 306' as placeholder — match against chosen control course
   const needed = COURSES.filter(c=>{
     if (getState(c.course_id)!==0) return false;
     if (c.course_id==='EM 306' && controlChoice!=='EM 306') return false;
     if (c.course_id==='ME 306' && controlChoice!=='ME 306') return false;
-    // Only include courses referenced in this plan
-    const inPlan = plan.schedule.some(s=>s.courseId===c.course_id);
+    const inPlan = plan.schedule.some(s=>
+      s.courseId===c.course_id ||
+      (s.courseId==='EM or ME 306' && c.course_id===controlChoice)
+    );
     return inPlan;
   });
 
@@ -673,8 +714,13 @@ function generatePlan() {
   Object.keys(reqs).forEach(k => eLeft[k]=Math.max(0,reqs[k].count-(electiveDone[k]||0)));
 
   // Standard year lookup (from plan schedule)
+  // Map both the real course IDs and the composite 'EM or ME 306' placeholder
   const stdYear = {};
-  plan.schedule.forEach(s=>{ if(!stdYear[s.courseId]) stdYear[s.courseId]=yearNames.indexOf(s.yearLabel); });
+  plan.schedule.forEach(s=>{
+    if(!stdYear[s.courseId]) stdYear[s.courseId]=yearNames.indexOf(s.yearLabel);
+    // Map composite control-course placeholder to the chosen course
+    if(s.courseId==='EM or ME 306') stdYear[controlChoice]=yearNames.indexOf(s.yearLabel);
+  });
 
   let sat = satisfied();
   let remaining = [...needed];
@@ -844,7 +890,10 @@ function unplacedCourses() {
     if (c.course_id==='EM 306'&&controlChoice!=='EM 306') return false;
     if (c.course_id==='ME 306'&&controlChoice!=='ME 306') return false;
     if (placed.has(c.course_id)) return false;
-    if (plan&&!plan.schedule.some(s=>s.courseId===c.course_id)) return false;
+    if (plan&&!plan.schedule.some(s=>
+      s.courseId===c.course_id ||
+      (s.courseId==='EM or ME 306' && c.course_id===controlChoice)
+    )) return false;
     return true;
   });
 }
