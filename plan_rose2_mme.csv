@@ -1,0 +1,65 @@
+plan_id,plan_name,total_credits,notes
+rose2_mme,Rose² MME Plan,194,Up to 12 credits of 500-level courses can count toward both degrees (grade B or better required). Pre-RHIT credits cover MA 111/112 PH 111 CHEM 111 and electives.
+
+elective_requirements
+type,label,count
+hssa,HSSA Elective,5
+tech,Technical Elective,3
+ms,Math/Science Elective,1
+free,Free Elective,0
+
+pre_rhit_credits
+course_id,title,credits
+MA 111,Calculus I,5
+MA 112,Calculus II,5
+PH 111,Foundations of Science I,4
+CHEM 111,General Chemistry I,4
+HSSA Elective,,4
+Free Elective,,4
+Free Elective,,4
+
+schedule
+year_num,year_label,quarter,course_id,title,credits,slot_type
+1,Year 1,Fall,MA 113,Calculus III,5,core
+1,Year 1,Fall,PH 112,Foundations of Science II,4,core
+1,Year 1,Fall,EM 121,Statics & Mechanics of Materials I,4,core
+1,Year 1,Fall,ME 123,Computer Programming,4,core
+1,Year 1,Fall,RHIT 100,RH Success,1,core
+1,Year 1,Winter,MA 221,Matrix Algebra & Diff Eqns I,4,core
+1,Year 1,Winter,ES 201,Conservation & Accounting Principles,4,core
+1,Year 1,Winter,ES 213,Electrical Systems,4,core
+1,Year 1,Winter,HUM H190,First-Year Writing Seminar,4,hssa
+1,Year 1,Spring,MA 222,Matrix Algebra & Diff Eqns II,4,core
+1,Year 1,Spring,EM 103,Introduction to Design,2,core
+1,Year 1,Spring,ES 214,Mechanical Systems,4,core
+1,Year 1,Spring,ME 201,Applications of Thermodynamics,4,core
+1,Year 1,Spring,HSSA Elective,,4,elective-hssa
+2,Year 2,Fall,MA 223,Engineering Statistics I,4,core
+2,Year 2,Fall,EM 104,Graphical Communications,2,core
+2,Year 2,Fall,ME 227,Numerical Methods,4,core
+2,Year 2,Fall,ME 230,Mechatronic Systems,4,core
+2,Year 2,Fall,HSSA Elective,,4,elective-hssa
+2,Year 2,Winter,EM 204,Statics & Mechanics of Materials II,4,core
+2,Year 2,Winter,ES 305,System Dynamics,4,core
+2,Year 2,Winter,ES 312,Fluid Systems,4,core
+2,Year 2,Winter,HSSA Elective,,4,elective-hssa
+2,Year 2,Spring,ME 302,Heat Transfer,4,core
+2,Year 2,Spring,ME 321,Measurement Systems,4,core
+2,Year 2,Spring,EM or ME 306,Vibration Analysis or Control Systems,4,core
+2,Year 2,Spring,ENGL H290,Tech and Prof Communication,4,hssa
+3,Year 3,Fall,BIO 101,Essential Biology,4,core
+3,Year 3,Fall,ME 317,Design for Manufacturing,4,core
+3,Year 3,Fall,ME 421,ME Lab,2,core
+3,Year 3,Fall,Math/Science Elective,,4,elective-ms
+3,Year 3,Winter,ME 328,Materials Engineering,4,core
+3,Year 3,Winter,MME Core Elective,,4,elective-tech
+3,Year 3,Winter,Technical Elective,,4,elective-tech
+3,Year 3,Spring,ME 380,Machine Component Design,4,core
+3,Year 3,Spring,MME Core Elective,,4,elective-tech
+3,Year 3,Spring,MME Core Elective,,4,elective-tech
+4,Year 4,Fall,ME 470,Capstone Design I,4,capstone
+4,Year 4,Fall,HSSA Elective,,4,elective-hssa
+4,Year 4,Fall,HSSA Elective,,4,elective-hssa
+4,Year 4,Winter,ME 471,Capstone Design II,4,capstone
+4,Year 4,Winter,HSSA Elective,,4,elective-hssa
+4,Year 4,Spring,ME 472,Capstone Design III,4,capstone
