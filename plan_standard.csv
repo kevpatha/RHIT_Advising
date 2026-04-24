@@ -1,0 +1,65 @@
+plan_id,plan_name,total_credits,notes
+standard,Standard Plan,194,
+
+elective_requirements
+type,label,count
+hssa,HSSA Elective,6
+tech,Technical Elective,3
+ms,Math/Science Elective,1
+free,Free Elective,2
+
+pre_rhit_credits
+course_id,title,credits
+
+schedule
+year_num,year_label,quarter,course_id,title,credits,slot_type
+1,Freshman,Fall,MA 111,Calculus I,5,core
+1,Freshman,Fall,PH 111,Foundations of Science I,4,core
+1,Freshman,Fall,EM 104,Graphical Communications,2,core
+1,Freshman,Fall,RHIT 100,RH Success,1,core
+1,Freshman,Fall,HUM H190,First-Year Writing Seminar,4,hssa
+1,Freshman,Winter,MA 112,Calculus II,5,core
+1,Freshman,Winter,PH 112,Foundations of Science II,4,core
+1,Freshman,Winter,EM 121,Statics & Mechanics of Materials I,4,core
+1,Freshman,Winter,HSSA Elective,,4,elective-hssa
+1,Freshman,Spring,MA 113,Calculus III,5,core
+1,Freshman,Spring,CHEM 111,General Chemistry I,4,core
+1,Freshman,Spring,EM 103,Introduction to Design,2,core
+1,Freshman,Spring,ME 123,Computer Programming,4,core
+2,Sophomore,Fall,MA 221,Matrix Algebra & Diff Eqns I,4,core
+2,Sophomore,Fall,BIO 101,Essential Biology,4,core
+2,Sophomore,Fall,ES 201,Conservation & Accounting Principles,4,core
+2,Sophomore,Fall,ES 213,Electrical Systems,4,core
+2,Sophomore,Winter,MA 222,Matrix Algebra & Diff Eqns II,4,core
+2,Sophomore,Winter,ES 214,Mechanical Systems,4,core
+2,Sophomore,Winter,ME 201,Applications of Thermodynamics,4,core
+2,Sophomore,Winter,HSSA Elective,,4,elective-hssa
+2,Sophomore,Spring,MA 223,Engineering Statistics I,4,core
+2,Sophomore,Spring,ME 227,Numerical Methods,4,core
+2,Sophomore,Spring,ME 230,Mechatronic Systems,4,core
+2,Sophomore,Spring,HSSA Elective,,4,elective-hssa
+3,Junior,Fall,EM 204,Statics & Mechanics of Materials II,4,core
+3,Junior,Fall,ES 305,System Dynamics,4,core
+3,Junior,Fall,ES 312,Fluid Systems,4,core
+3,Junior,Fall,Free Elective,,4,elective-free
+3,Junior,Winter,ME 317,Design for Manufacturing,4,core
+3,Junior,Winter,ME 321,Measurement Systems,4,core
+3,Junior,Winter,EM or ME 306,Vibration Analysis or Control Systems,4,core
+3,Junior,Winter,HSSA Elective,,4,elective-hssa
+3,Junior,Spring,ME 302,Heat Transfer,4,core
+3,Junior,Spring,ME 328,Materials Engineering,4,core
+3,Junior,Spring,ME 380,Machine Component Design,4,core
+3,Junior,Spring,ENGL H290,Tech and Prof Communication,4,hssa
+4,Senior,Fall,ME 421,ME Lab,2,core
+4,Senior,Fall,ME 470,Capstone Design I,4,capstone
+4,Senior,Fall,Technical Elective,,4,elective-tech
+4,Senior,Fall,Math/Science Elective,,4,elective-ms
+4,Senior,Fall,HSSA Elective,,4,elective-hssa
+4,Senior,Winter,ME 471,Capstone Design II,4,capstone
+4,Senior,Winter,Technical Elective,,4,elective-tech
+4,Senior,Winter,HSSA Elective,,4,elective-hssa
+4,Senior,Winter,Free Elective,,4,elective-free
+4,Senior,Spring,ME 472,Capstone Design III,4,capstone
+4,Senior,Spring,Technical Elective,,4,elective-tech
+4,Senior,Spring,Technical Elective,,4,elective-tech
+4,Senior,Spring,HSSA Elective,,4,elective-hssa
