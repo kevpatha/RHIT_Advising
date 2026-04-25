@@ -6,7 +6,7 @@ MA 107,Calculus C,4,4,core,Spring,,MA 106,calculus_abc,,
 MA 111,Calculus I,5,5,core,Fall,Winter; Spring,,standard; rose2_mme; rose2_mem,,
 MA 112,Calculus II,5,5,core,Winter,Spring,,standard; rose2_mme; rose2_mem,,
 MA 113,Calculus III,5,5,core,Spring; Summer,Fall,MA 112 or MA 107,all,calculus_abc:Summer,Required summer course in Calculus ABC plan
-PH 111,Physics I,4,4,core,Fall,Winter,,standard; rose2_mme; rose2_mem,,
+PH 111,Physics I,4,4,core,Fall,Winter,,all,,
 PH 112,Physics II,4,4,core,Winter,Spring,PH 111; MA 111 or MA 105,all,,
 EM 104,Graphical Communications,2,2,core,Fall,Winter; Spring,,all,,
 EM 121,Statics & Mechanics of Materials I,4,4,core,Winter,Fall; Spring,MA 111 or MA 105,all,,
