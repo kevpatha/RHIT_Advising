@@ -63,11 +63,15 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
 .year-label{padding:4px 13px 2px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-faint);font-family:var(--mono);position:sticky;top:0;background:var(--surface);z-index:1;border-bottom:1px solid var(--border);}
 .course-item{display:flex;align-items:center;gap:7px;padding:3px 13px;cursor:pointer;}
 .course-item:hover{background:var(--surface2);}
-.course-item.s1{background:var(--amber-light);}
+
 .course-item.s2{opacity:.4;}
 .state-btn{width:14px;height:14px;border-radius:2px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;user-select:none;border:1.5px solid var(--border-strong);background:var(--surface);color:transparent;}
-.state-btn.s1{border:1.5px dashed var(--amber);background:var(--amber-light);color:var(--amber);font-weight:700;}
+
 .state-btn.s2{border-color:var(--accent);background:var(--accent);color:white;font-weight:700;}
+.state-btn.s3{border-color:var(--green-mid);background:var(--surface);color:var(--green-mid);font-weight:700;}
+.course-item.s3 .course-id{color:var(--green-mid);}
+.elec-sched-indicator{font-size:10px;font-family:var(--mono);color:var(--green-mid);margin-left:4px;font-weight:600;}
+.elec-sched-indicator.full{color:var(--text-faint);}
 .state-hint{font-size:9px;color:var(--text-faint);padding:3px 13px;font-style:italic;border-bottom:1px solid var(--border);}
 .course-info{flex:1;min-width:0;}
 .course-id{font-family:var(--mono);font-size:10px;color:var(--accent);font-weight:500;}
@@ -168,6 +172,7 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -198,7 +203,7 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
     </div>
     <div class="config-row">
       <label>Year standing</label>
-      <select id="startYear" id="startYear"></select>
+      <select id="startYear" onchange="onYearChange()"></select>
     </div>
     <div class="config-row" id="targetRow">
       <label>Target cr/qtr</label>
@@ -223,7 +228,7 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
     <!-- Elective counters — populated dynamically per plan -->
     <div id="electiveCounters"></div>
 
-    <div class="state-hint">Click course: □ none → ◐ in progress → ✓ done</div>
+    <div class="state-hint">✓ completed &nbsp;|&nbsp; – in plan &nbsp;|&nbsp; □ not yet scheduled</div>
     <div class="course-list" id="courseList"></div>
     <div class="action-bar">
       <button class="btn btn-secondary btn-sm" onclick="clearAll()">Clear</button>
@@ -512,10 +517,12 @@ function buildPlanTabs() {
 
 function buildYearSelect() {
   const sel = document.getElementById('startYear');
+  const prevVal = sel.value;
   sel.innerHTML = '';
   getPlanYearNames().forEach(y => {
     const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
   });
+  if (prevVal && [...sel.options].some(o=>o.value===prevVal)) sel.value = prevVal;
 }
 
 function buildElectiveCounters() {
@@ -532,10 +539,24 @@ function buildElectiveCounters() {
         <span class="counter-val" id="${key}Val">${electiveDone[key]||0}</span>
         <button class="counter-btn" id="${key}Plus"  onclick="changeCounter('${key}', 1)">+</button>
         <span class="counter-of">/ ${req.count}</span>
+        <span class="elec-sched-indicator" id="${key}SchedInd"></span>
       </div>`;
     el.appendChild(row);
   });
   syncCounterBtns();
+}
+
+function updateElecScheduledIndicators() {
+  const reqs=activeElecReqs();
+  Object.entries(reqs).forEach(([k,req])=>{
+    const el=document.getElementById(k+'SchedInd');
+    if (!el) return;
+    const sched=scheduledElecCounts[k]||0;
+    if (sched===0) { el.textContent=''; return; }
+    const total=(electiveDone[k]||0)+sched;
+    el.className='elec-sched-indicator'+(total>=req.count?' full':'');
+    el.textContent=`+${sched} in plan`;
+  });
 }
 
 function buildCourseList() {
@@ -593,9 +614,13 @@ function buildCourseList() {
     courses.forEach(c=>{
       const st=getState(c.course_id);
       const item=document.createElement('div');
-      item.className='course-item s'+st;
+      const isDone=st===2;
+      const isScheduled=!isDone && scheduledCourseIds.has(c.course_id);
+      item.className='course-item'+(isDone?' s2':isScheduled?' s3':'');
       const safe=c.course_id.replace(/'/g,"\\'");
-      item.innerHTML=`<div class="state-btn s${st}" onclick="cycleState('${safe}')">${st===0?'':st===1?'–':'✓'}</div>
+      const btnSym=isDone?'✓':isScheduled?'–':'';
+      const btnCls=isDone?' s2':isScheduled?' s3':'';
+      item.innerHTML=`<div class="state-btn${btnCls}" onclick="cycleState('${safe}')">${btnSym}</div>
         <div class="course-info"><div class="course-id">${c.course_id}</div><div class="course-name">${c.title}</div></div>
         <div class="course-credits">${c.credits||''}cr</div>`;
       g.appendChild(item);
@@ -612,6 +637,8 @@ function switchPlan(id) {
   activePlanId = id;
   document.querySelectorAll('.plan-tab').forEach(b=>b.classList.toggle('active',b.textContent===PLAN_FILES.find(p=>p.id===id)?.name));
   electiveDone = {};
+  scheduledCourseIds = new Set();
+  scheduledElecCounts = {};
   buildYearSelect();
   buildElectiveCounters();
   buildCourseList();
@@ -671,21 +698,52 @@ function syncCounterBtns() {
 }
 
 function cycleState(id) {
-  courseStates[id]=((courseStates[id]||0)+1)%3;
+  courseStates[id] = getState(id)===0 ? 2 : 0;
   if(!courseStates[id]) delete courseStates[id];
   buildCourseList();
   if(currentMode==='build') renderBuild();
 }
 
+function onYearChange() {
+  const yearNames = getPlanYearNames();
+  const selectedYr = document.getElementById('startYear').value;
+  const selectedYi = yearNames.indexOf(selectedYr);
+  const plan = activePlan();
+  if (!plan) return;
+  const preRhitIdSet = new Set((plan.preRhit||[]).map(c=>c.id).filter(Boolean));
+  // Mark all courses from years strictly before the selected year as done,
+  // but only if the student hasn't explicitly unchecked them (state===0).
+  plan.schedule.forEach(s=>{
+    if (!s.courseId || s.courseId==='EM or ME 306' || preRhitIdSet.has(s.courseId)) return;
+    if (!['core','hssa','capstone'].includes(s.slotType)) return;
+    const courseYi = yearNames.indexOf(s.yearLabel);
+    if (courseYi >= 0 && courseYi < selectedYi) {
+      if (getState(s.courseId) !== 0) return; // already explicitly set — leave it
+      courseStates[s.courseId] = 2;
+    }
+  });
+  // Handle EM 306 / ME 306 composite slot
+  const ctrlSlot = plan.schedule.find(s=>s.courseId==='EM or ME 306');
+  if (ctrlSlot) {
+    const ctrlYi = yearNames.indexOf(ctrlSlot.yearLabel);
+    if (ctrlYi >= 0 && ctrlYi < selectedYi && getState(controlChoice)===0)
+      courseStates[controlChoice] = 2;
+  }
+  buildCourseList();
+  if (currentMode==='build') renderBuild();
+}
+
 function clearAll() {
   courseStates={};
   electiveDone={};
+  scheduledCourseIds=new Set();
+  scheduledElecCounts={};
   Object.keys(activeElecReqs()).forEach(k=>{
     const v=document.getElementById(k+'Val'); if(v) v.textContent=0;
   });
   syncCounterBtns();
   initGrid();
-  buildCourseList();
+  onYearChange();
   if(currentMode==='suggest'){
     document.getElementById('suggestPanel').innerHTML=`<div class="empty-state"><div class="icon">◳</div><p>Mark completed courses then click <strong>Generate plan</strong>.</p></div>`;
   } else renderBuild();
@@ -842,6 +900,20 @@ function generatePlan() {
 //  SUGGEST MODE — render
 // ═══════════════════════════════════════════════════════════
 function renderSuggest(schedule,startQ,startYr,target,delayed,plan) {
+  lastSchedule = schedule;
+  lastSchedulePlan = plan;
+  scheduledCourseIds = new Set();
+  scheduledElecCounts = {};
+  schedule.forEach(q=>q.courses.forEach(c=>{
+    if (c.type && c.type.startsWith('elective-')) {
+      const k=c.type.replace('elective-','');
+      scheduledElecCounts[k]=(scheduledElecCounts[k]||0)+1;
+    } else {
+      scheduledCourseIds.add(c.course_id);
+    }
+  }));
+  buildCourseList();
+  updateElecScheduledIndicators();
   const panel=document.getElementById('suggestPanel');
   const byYear={};
   schedule.forEach(q=>{(byYear[q.year]=byYear[q.year]||[]).push(q);});
@@ -864,6 +936,7 @@ function renderSuggest(schedule,startQ,startYr,target,delayed,plan) {
     <span class="summary-stat"><strong>${totDone}</strong> cr completed</span>
     <span class="summary-stat">Target <strong>${target}</strong> cr/qtr</span>
     <span class="summary-stat">Plan: <strong>${plan.meta.name}</strong></span>
+    <button onclick="exportExcel()" style="margin-left:auto;padding:4px 10px;background:var(--green-mid);color:white;border:none;border-radius:var(--radius);font-family:var(--font);font-size:11px;font-weight:600;cursor:pointer;" title="Download schedule as Excel">⬇ Excel</button>
   </div>`;
 
   if (inProg.length) html+=`<div class="info-box amber"><strong>In progress:</strong> ${inProg.map(c=>c.course_id).join(', ')} — treated as complete for prerequisites.</div>`;
@@ -1079,6 +1152,154 @@ function renderBuild() {
   </div></div>`;
 
   panel.innerHTML=html;
+
+  // Update left-panel scheduled indicators to reflect build grid contents
+  scheduledCourseIds = new Set();
+  buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{
+    if (s.kind==='course') scheduledCourseIds.add(s.id);
+  })));
+  scheduledElecCounts = {...ePlaced}; // ePlaced already tallied above
+  buildCourseList();
+  updateElecScheduledIndicators();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXCEL EXPORT
+// ═══════════════════════════════════════════════════════════
+let lastSchedule = null;
+let lastSchedulePlan = null;
+let scheduledCourseIds = new Set();
+let scheduledElecCounts = {};
+
+function exportExcel() {
+  if (!lastSchedule || !lastSchedule.length) {
+    alert('Generate a plan first, then download.');
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+  const plan = lastSchedulePlan;
+  const quarters = lastSchedule.length && lastSchedule.some(q=>q.quarter==='Summer')
+    ? ['Fall','Winter','Spring','Summer'] : ['Fall','Winter','Spring'];
+
+  // ── Sheet 1: Schedule grid (mirrors flowchart layout) ──
+  const ws1Data = [];
+
+  // Header row
+  const headerRow = ['Year', ...quarters.map(q=>q+' — Courses'), ...quarters.map(q=>q+' — Credits'), 'Year Total'];
+  // Simpler: one row per quarter with all info
+  // Actually build it year-grouped with courses stacked per quarter cell (as text)
+
+  // Title rows
+  ws1Data.push([`ME Degree Plan — ${plan?.meta?.name||''}`, '', '', '']);
+  ws1Data.push([`Generated ${new Date().toLocaleDateString()}`, '', '', '']);
+  ws1Data.push([]);
+
+  // Column headers
+  ws1Data.push(['Year / Quarter', ...quarters, 'Quarter Credits']);
+
+  const byYear = {};
+  lastSchedule.forEach(q => { (byYear[q.year] = byYear[q.year]||[]).push(q); });
+
+  const years = [...new Set(lastSchedule.map(q=>q.year))];
+
+  years.forEach(yr => {
+    const qs = byYear[yr];
+    // Find the max number of courses in any quarter this year
+    const maxCourses = Math.max(...quarters.map(qName => {
+      const qd = qs.find(q=>q.quarter===qName);
+      return qd ? qd.courses.length : 0;
+    }));
+
+    // Year header row (merged visually via bold in openpyxl — here we just mark it)
+    ws1Data.push([yr, ...quarters.map(()=>''), '']);
+
+    // One row per course slot
+    for (let i = 0; i < maxCourses; i++) {
+      const row = [''];  // year column blank after first
+      quarters.forEach(qName => {
+        const qd = qs.find(q=>q.quarter===qName);
+        const c = qd?.courses[i];
+        row.push(c ? `${c.course_id} — ${c.title} (${c.credits}cr)` : '');
+      });
+      // Credits column: only on first row of this quarter group
+      row.push(i===0 ? quarters.map(qName=>{
+        const qd=qs.find(q=>q.quarter===qName);
+        return qd?`${qName}: ${qd.credits}cr`:'';
+      }).filter(Boolean).join(' | ') : '');
+      ws1Data.push(row);
+    }
+    ws1Data.push([]); // blank between years
+  });
+
+  // Summary section
+  const totCr = lastSchedule.reduce((s,q)=>s+q.credits,0);
+  const doneCr = COURSES.reduce((s,c)=>getState(c.course_id)===2?s+c.credits:s,0)
+    + Object.entries(electiveDone).reduce((s,[k,v])=>s+v*4,0)
+    + (plan?.preRhit||[]).reduce((s,c)=>s+(c.credits||0),0);
+  ws1Data.push(['Summary', '', '', '']);
+  ws1Data.push(['Credits remaining', totCr, '', '']);
+  ws1Data.push(['Credits completed', doneCr, '', '']);
+  ws1Data.push(['Total credits', totCr+doneCr, '', '']);
+  ws1Data.push(['Plan', plan?.meta?.name||'', '', '']);
+  ws1Data.push(['Control course', controlChoice, '', '']);
+
+  const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
+
+  // Column widths
+  ws1['!cols'] = [
+    {wch:14},  // Year
+    {wch:38},  // Fall
+    {wch:38},  // Winter
+    {wch:38},  // Spring
+    ...(quarters.length===4?[{wch:38}]:[]),  // Summer if present
+    {wch:30},  // Credits
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Schedule');
+
+  // ── Sheet 2: Flat course list ──
+  const ws2Data = [
+    ['Quarter', 'Year', 'Course ID', 'Course Title', 'Credits', 'Type', 'Notes']
+  ];
+  lastSchedule.forEach(q => {
+    q.courses.forEach(c => {
+      ws2Data.push([
+        q.quarter, q.year,
+        c.course_id, c.title, c.credits,
+        c.type||'core',
+        ''
+      ]);
+    });
+  });
+
+  const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
+  ws2['!cols'] = [{wch:10},{wch:12},{wch:12},{wch:38},{wch:8},{wch:14},{wch:20}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Course List');
+
+  // ── Sheet 3: Completed courses ──
+  const ws3Data = [['Course ID', 'Course Title', 'Credits', 'Status']];
+  // Pre-RHIT credits
+  (plan?.preRhit||[]).forEach(c=>{
+    if (c.id||c.title) ws3Data.push([c.id||'—', c.title||'Pre-RHIT Credit', c.credits, 'Pre-RHIT / Transfer']);
+  });
+  // Checked-off courses
+  COURSES.filter(c=>getState(c.course_id)===2).forEach(c=>{
+    ws3Data.push([c.course_id, c.title, c.credits, 'Completed']);
+  });
+  // Elective credits done
+  Object.entries(electiveDone).forEach(([k,v])=>{
+    const req=activeElecReqs()[k];
+    for (let i=0;i<v;i++) ws3Data.push(['—', req?.label||k, 4, 'Completed elective']);
+  });
+
+  const ws3 = XLSX.utils.aoa_to_sheet(ws3Data);
+  ws3['!cols'] = [{wch:12},{wch:38},{wch:8},{wch:22}];
+  XLSX.utils.book_append_sheet(wb, ws3, 'Completed Courses');
+
+  // Download
+  const planSlug = (plan?.meta?.name||'plan').replace(/[^a-z0-9]/gi,'-').toLowerCase();
+  XLSX.writeFile(wb, `ME_schedule_${planSlug}.xlsx`);
 }
 
 // ═══════════════════════════════════════════════════════════
