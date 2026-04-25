@@ -836,18 +836,77 @@ function generatePlan() {
   const schedule = [];
   const delayed  = new Set();
 
-  // ── Contact-hours-aware scheduler ───────────────────────────────────────────
-  // Goal: distribute contact hours as evenly as possible across all remaining
-  // quarters, stay within 12–18 credit bounds, finish by Senior year if possible.
+  // ── Pre-placement: force MA 113 into Freshman Summer for Calc ABC ──────────
+  const isCalcABC = activePlanId === 'calculus_abc';
+  if (isCalcABC) {
+    // Auto-show summer quarters for this plan
+    showSummer = true;
+    document.querySelectorAll('.toggle-opt[data-val="yes"],.toggle-opt[data-val="no"]').forEach(b=>{
+      b.classList.toggle('active', b.dataset.val==='yes');
+    });
+    // Only force MA 113 into Freshman Summer if it's still needed (not checked off,
+    // not already placed, and the student is starting at or before Freshman Summer)
+    const freshmanYi = yearNames.indexOf('Freshman');
+    const summerQi   = ALL_QUARTERS.indexOf('Summer');
+    const ma113      = courseById('MA 113');
+    const ma113Needed = ma113 && remaining.some(c=>c.course_id==='MA 113');
+    if (ma113Needed && freshmanYi >= safeYi && freshmanYi < buildGrid.length) {
+      // Only auto-place if not already in Freshman Summer grid slot
+      if (!buildGrid[freshmanYi][summerQi].some(s=>s.kind==='course'&&s.id==='MA 113')) {
+        buildGrid[freshmanYi][summerQi].push({kind:'course', id:'MA 113'});
+        gridPlacedIds.add('MA 113');
+        sat.add('MA 113'); expandEquiv(sat);
+        remaining = remaining.filter(c=>c.course_id!=='MA 113');
+      }
+    }
+  }
+
+  // ── Pre-compute HSSA quota per year ──────────────────────────────────────────
+  // Goal: at least 1 HSSA elective per year, no more than 1 per quarter.
+  // We pre-assign HSSA slots to years here, then enforce it in the loop.
+  const hssaNeed    = eLeft['hssa'] || 0;
+  const hssaPerYear = {}; // yi -> how many HSSA slots to place in that year
+  if (hssaNeed > 0) {
+    // Count distinct years in allQ up through seniorYi
+    const planYears = [...new Set(allQ.filter(q=>q.yi<=seniorYi).map(q=>q.yi))];
+    let slotsLeft   = Math.ceil(hssaNeed / 4); // number of 4-credit slots
+    // Already-placed HSSA slots in each year of the grid
+    planYears.forEach(yi=>{
+      const already = yi<buildGrid.length
+        ? buildGrid[yi].reduce((s,q)=>s+q.filter(sl=>sl.kind==='elective'&&sl.electiveType==='hssa').length,0)
+        : 0;
+      slotsLeft -= already;
+    });
+    slotsLeft = Math.max(0, slotsLeft);
+    // Distribute: 1 per year, then remainder round-robin
+    planYears.forEach(yi=>{ hssaPerYear[yi]=0; });
+    let round = 0;
+    while (slotsLeft > 0) {
+      planYears.forEach(yi=>{
+        if (slotsLeft <= 0) return;
+        const cap = round === 0 ? 1 : 99; // first pass: max 1/year; later: fill freely
+        if (hssaPerYear[yi] < cap) { hssaPerYear[yi]++; slotsLeft--; }
+      });
+      round++;
+      if (round > 10) break; // safety
+    }
+  }
+  const hssaPlacedInYear = {}; // yi -> slots placed so far this year (across all quarters)
+
+  // ── Main scheduling loop ──────────────────────────────────────────────────────
+  // Strategy:
+  //  • Compute a per-quarter contact-hour target from total remaining ÷ quarters-to-senior
+  //  • Place ALL eligible courses that fit within 18cr (not gated by ch target) —
+  //    the ch target is only used for *sorting* preference, not hard exclusion
+  //  • Fill to 12cr minimum using electives if courses alone don't reach it
+  //  • Enforce finish-by-senior: compress remaining work into year-4 quarters if needed
 
   for (let pass=0; pass<allQ.length; pass++) {
     const {year,quarter,yi} = allQ[pass];
     const qi2 = ALL_QUARTERS.indexOf(quarter);
 
-    // Credits already placed in this quarter by the student
     const existingQCr = yi<buildGrid.length
-      ? buildGrid[yi][qi2].reduce((s,sl)=>
-          s+(sl.kind==='course'?(courseById(sl.id)?.credits||0):(sl.credits||4)),0)
+      ? buildGrid[yi][qi2].reduce((s,sl)=>s+(sl.kind==='course'?(courseById(sl.id)?.credits||0):(sl.credits||4)),0)
       : 0;
     const existingQCh = yi<buildGrid.length
       ? buildGrid[yi][qi2].reduce((s,sl)=>{
@@ -856,32 +915,30 @@ function generatePlan() {
         },0)
       : 0;
 
-    // How many quarters remain (including this one) up through Senior year?
-    // Used to compute the per-quarter contact-hour target.
-    const quartersRemaining = allQ.slice(pass).filter(q=>q.yi<=seniorYi).length
-      || allQ.slice(pass).length || 1;
+    // Quarters remaining through senior year (used to compute ch target)
+    const qToSenior = allQ.slice(pass).filter(q=>q.yi<=seniorYi).length || allQ.slice(pass).length || 1;
 
-    // Total contact hours left to schedule (courses + electives at 4ch each)
     const remCourseCh = remaining.reduce((s,c)=>s+(c.contact_hours||c.credits||0),0);
-    const remElecCh   = Object.values(eLeft).reduce((s,v)=>s+v,0); // credits ≈ ch for electives
+    const remElecCh   = Object.entries(eLeft).reduce((s,[k,v])=>s+(eScheduled[k]<v?v-eScheduled[k]:0),0);
     const totalRemCh  = remCourseCh + remElecCh;
 
-    // Target contact hours this quarter: spread evenly, but clamp to 12–18 credit window
-    // We use contact hours for the distribution target but enforce credit bounds for enrollment.
-    const rawChTarget = Math.ceil(totalRemCh / quartersRemaining);
+    // Ideal ch this quarter — but NEVER hard-gate course placement on this
+    const rawChTarget = Math.ceil(totalRemCh / qToSenior);
     const chTarget    = Math.max(12, Math.min(18, rawChTarget + existingQCh)) - existingQCh;
 
-    // Eligible courses this quarter
-    const eligible = remaining.filter(c=>
-      availInQ(c, quarter) && prereqsMet(c, sat)
-    );
+    // Eligible: available this quarter, prereqs met by previous quarters only
+    const eligible = remaining.filter(c=> availInQ(c,quarter) && prereqsMet(c,sat));
 
-    // Sort priority: overdue > earlier stdYear > capstone-last > primary-quarter-first
     eligible.sort((a,b)=>{
       const aStd=stdYear[a.course_id]??99, bStd=stdYear[b.course_id]??99;
       const aLate=aStd<yi?1:0, bLate=bStd<yi?1:0;
       if (aLate!==bLate) return bLate-aLate;
       if (aStd!==bStd)   return aStd-bStd;
+      // Prefer courses closer to chTarget fit (smaller overage first)
+      const aCh=a.contact_hours||a.credits, bCh=b.contact_hours||b.credits;
+      const aOver=Math.max(0,existingQCh+aCh-chTarget);
+      const bOver=Math.max(0,existingQCh+bCh-chTarget);
+      if (aOver!==bOver) return aOver-bOver;
       if (a.type==='capstone'&&b.type!=='capstone') return 1;
       if (b.type==='capstone'&&a.type!=='capstone') return -1;
       return (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
@@ -892,68 +949,54 @@ function generatePlan() {
     let qCh = existingQCh;
     const pendingSat = new Set();
 
-    // Greedy fill: add courses as long as doing so keeps us ≤18cr and ≤chTarget ch.
-    // If adding a course would exceed chTarget but we're still under 12cr, allow it
-    // (must reach the minimum).  Never exceed 18cr.
     for (const c of eligible) {
       if (qCr + c.credits > 18) continue;
-      const ch = c.contact_hours || c.credits;
-      // Skip if we're at or above chTarget AND already meeting minimum credit load
-      if (qCh + ch > chTarget + 2 && qCr >= 12) continue; // +2 tolerance to avoid getting stuck
+      // Place ALL eligible courses that fit — ch target only softly guides sort order
       if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
       qCourses.push(c);
       qCr += c.credits;
-      qCh += ch;
+      qCh += (c.contact_hours||c.credits);
       pendingSat.add(c.course_id);
       remaining = remaining.filter(x=>x.course_id!==c.course_id);
     }
 
-    // Merge pendingSat → sat for next quarter
     pendingSat.forEach(id=>sat.add(id));
     expandEquiv(sat);
 
-    // Fill elective slots — contribute to reaching chTarget.
-    // HSSA electives are distributed evenly across all non-summer quarters;
-    // other elective types fill greedily (they belong in upper years anyway).
+    // ── Elective fill ───────────────────────────────────────────────────────────
     if (quarter !== 'Summer') {
-      const nonSummerQsRemaining = allQ.slice(pass).filter(q=>q.quarter!=='Summer').length || 1;
+      if (!hssaPlacedInYear[yi]) hssaPlacedInYear[yi] = 0;
+      const hssaQuotaThisYear  = hssaPerYear[yi] || 0;
+      // HSSA: enforce quota per year, max 1 per quarter
+      const hssaAlreadyGrid = yi<buildGrid.length
+        ? buildGrid[yi].reduce((s,q)=>s+q.filter(sl=>sl.kind==='elective'&&sl.electiveType==='hssa').length,0)
+        : 0;
+      const hssaAlreadyThisQ = qCourses.filter(c=>c.type==='elective-hssa').length;
+      const hssaTotalThisYear = hssaPlacedInYear[yi] + hssaAlreadyGrid;
+      const hssaNeedThisYear  = Math.max(0, hssaQuotaThisYear - hssaTotalThisYear);
+      if (hssaNeedThisYear > 0 && hssaAlreadyThisQ === 0 &&
+          eScheduled['hssa'] < (eLeft['hssa']||0) && qCr + 4 <= 18) {
+        qCourses.push({course_id:'HSSA Elective',title:reqs['hssa']?.label||'HSSA Elective',credits:4,type:'elective-hssa'});
+        qCr+=4; qCh+=4; eScheduled['hssa']+=4; hssaPlacedInYear[yi]++;
+      }
 
-      Object.entries(eLeft).forEach(([k, need])=>{
+      // Other electives (tech, ms, free): fill to reach 12cr minimum, then up to chTarget
+      Object.entries(eLeft).forEach(([k,need])=>{
+        if (k==='hssa') return; // handled above
         if (eScheduled[k] >= need) return;
-
-        if (k === 'hssa') {
-          // HSSA distribution by YEAR: spread remaining HSSA credits evenly across
-          // remaining years (not quarters). Allow at most 1 slot per year, so they
-          // land early in each year when there's room.
-          // Count distinct years remaining (including current).
-          const yearsRemaining = [...new Set(
-            allQ.slice(pass).filter(q=>q.quarter!=='Summer'&&q.yi<=seniorYi).map(q=>q.yi)
-          )].length || 1;
-          const hssaSlotsLeft = Math.ceil((need - eScheduled[k]) / 4);
-          // Already placed HSSA in this year?
-          const hssaThisYear = qCourses.filter(c=>c.type==='elective-hssa').length +
-            (yi < buildGrid.length
-              ? buildGrid[yi].reduce((s,q)=>s+q.filter(sl=>sl.kind==='elective'&&sl.electiveType==='hssa').length,0)
-              : 0);
-          // Allow 1 per year normally; allow 2 if falling behind
-          const maxThisYear = hssaSlotsLeft > yearsRemaining ? 2 : 1;
-          if (hssaThisYear < maxThisYear) {
-            let toPlace = maxThisYear - hssaThisYear;
-            while (toPlace > 0 && eScheduled[k] < need && qCr + 4 <= 18) {
-              if (qCh + 4 > chTarget + 2 && qCr >= 12) break;
-              qCourses.push({course_id:'HSSA Elective', title:reqs[k]?.label||'HSSA Elective', credits:4, type:'elective-hssa'});
-              qCr+=4; qCh+=4; eScheduled[k]+=4; toPlace--;
-            }
-          }
-        } else {
-          // Tech, ms, free — fill greedily within ch target
-          while (eScheduled[k] < need && qCr + 4 <= 18) {
-            if (qCh + 4 > chTarget + 2 && qCr >= 12) break;
-            qCourses.push({course_id:k+' Elective', title:reqs[k]?.label||k, credits:4, type:'elective-'+k});
-            qCr+=4; qCh+=4; eScheduled[k]+=4;
-          }
+        while (eScheduled[k] < need && qCr + 4 <= 18) {
+          // Only add if below 12cr (must fill) or within chTarget
+          if (qCr >= 12 && qCh + 4 > chTarget + 4) break;
+          qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
+          qCr+=4; qCh+=4; eScheduled[k]+=4;
         }
       });
+
+      // If still under 12cr, add any remaining HSSA as overflow (at most 1 extra per quarter)
+      if (qCr < 12 && eScheduled['hssa'] < (eLeft['hssa']||0) && qCr + 4 <= 18) {
+        qCourses.push({course_id:'HSSA Elective',title:reqs['hssa']?.label||'HSSA Elective',credits:4,type:'elective-hssa'});
+        qCr+=4; qCh+=4; eScheduled['hssa']+=4; hssaPlacedInYear[yi]++;
+      }
     }
 
     if (qCourses.length > 0) schedule.push({year,quarter,courses:qCourses,credits:qCr,contactHours:qCh});
