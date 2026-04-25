@@ -7,14 +7,14 @@ MA 111,Calculus I,5,5,core,Fall,Winter; Spring,,standard; rose2_mme; rose2_mem,,
 MA 112,Calculus II,5,5,core,Winter,Spring,,standard; rose2_mme; rose2_mem,,
 MA 113,Calculus III,5,5,core,Spring; Summer,Fall,MA 112 or MA 107,all,calculus_abc:Summer,Required summer course in Calculus ABC plan
 PH 111,Physics I,4,4,core,Fall,Winter,,standard; rose2_mme; rose2_mem,,
-PH 112,Physics II,4,4,core,Winter,Spring,PH 111; MA 111,all,,
+PH 112,Physics II,4,4,core,Winter,Spring,PH 111; MA 111 or MA 105,all,,
 EM 104,Graphical Communications,2,2,core,Fall,Winter; Spring,,all,,
 EM 121,Statics & Mechanics of Materials I,4,4,core,Winter,Fall; Spring,MA 111 or MA 105,all,,
 EM 103,Introduction to Design,2,2,core,Spring,Fall,,all,,
 ME 123,Computer Programming,4,4,core,Spring,Fall; Winter,,all,,ME/PHOE major or permission of instructor
 HUM H190,First-Year Writing Seminar,4,4,hssa,Fall; Winter; Spring,,,all,,HSSA requirement
 CHEM 111,General Chemistry I,4,4,core,Fall; Spring,,,all,,
-BIO 101,Essential Biology,4,4,core,Fall; Winter; Spring,,,all,,
+BIO 101,Essential Biology,4,4,core,Fall; Winter; Spring,,,all,standard:Sophomore; rose2_mme:Year 3; rose2_mem:Year 3,
 MA 221,Matrix Algebra & Diff Eqns I,4,4,core,Fall; Winter,Spring,MA 113,all,,
 MA 222,Matrix Algebra & Diff Eqns II,4,4,core,Fall; Winter; Spring,,MA 221,all,,
 MA 223,Engineering Statistics I,4,4,core,Fall; Spring,Winter,MA 221,all,,
@@ -34,7 +34,7 @@ EM 306,Vibration Analysis,4,4,core,Winter,Spring,ES 305 or ES 205,all,,Take EM 3
 ME 306,Control Systems,4,4,core,Winter,Spring,ES 305 or ES 205,all,,Take EM 306 OR ME 306
 ME 321,Measurement Systems,4,4,core,Winter,Fall; Spring,EM 103; MA 223; ES 201,all,,
 ME 328,Materials Engineering,4,4,core,Winter,Spring,CHEM 111,all,,
-ENGL H290,Tech and Prof Communication,4,4,hssa,Winter,Spring,,all,,HSSA requirement; prereq for ME 421
+ENGL H290,Tech and Prof Communication,4,4,hssa,Winter,Spring,,all,all:Junior,HSSA requirement; prereq for ME 421
 ME 380,Machine Component Design,4,4,core,Spring,Fall,EM 204,all,,
 ME 421,ME Lab,2,2,core,Fall,Winter,ME 321; ENGL H290,all,,
 ME 470,Capstone Design I,4,4,capstone,Fall,Spring,ME 230; ME 302; ME 321; ME 380,all,,

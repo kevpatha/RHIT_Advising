@@ -1019,9 +1019,15 @@ function generatePlan() {
       remaining = remaining.filter(x=>x.course_id!==c.course_id);
     }
 
-    // If crCap blocked some courses and we still have room under 18, fit them in
+    // Second pass: fit any remaining non-HSSA courses that were blocked by crCap
+    // HSSA-type courses are excluded here — they count toward the year's HSSA total
+    // and would consume the slot reserved for a generic HSSA elective.
     if (reserveHSSA) {
-      for (const c of eligible.filter(c=>!pendingSat.has(c.course_id)&&remaining.some(x=>x.course_id===c.course_id))) {
+      for (const c of eligible.filter(c=>
+          c.type!=='hssa' &&
+          !pendingSat.has(c.course_id) &&
+          remaining.some(x=>x.course_id===c.course_id)
+      )) {
         if (qCr + c.credits > 18) continue;
         if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
         qCourses.push(c);
