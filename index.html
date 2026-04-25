@@ -186,10 +186,7 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
   <span class="sep">|</span>
   <span class="sub">Rose-Hulman</span>
   <div class="plan-tabs" id="planTabs"></div>
-  <div class="mode-tabs">
-    <button class="mode-tab active" id="tab-suggest" onclick="switchMode('suggest')">Suggest</button>
-    <button class="mode-tab"        id="tab-build"   onclick="switchMode('build')">Build</button>
-  </div>
+
 </header>
 
 <div class="app" id="appBody" style="display:none;">
@@ -205,11 +202,7 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
       <label>Year standing</label>
       <select id="startYear" onchange="onYearChange()"></select>
     </div>
-    <div class="config-row" id="targetRow">
-      <label>Target cr/qtr</label>
-      <input type="number" id="targetCredits" value="16" min="12" max="18" style="width:46px;flex:none;">
-      <span style="font-size:10px;color:var(--text-faint);">(12–18)</span>
-    </div>
+
     <div class="config-row">
       <label>Control course</label>
       <div class="toggle-group">
@@ -232,17 +225,16 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
     <div class="course-list" id="courseList"></div>
     <div class="action-bar">
       <button class="btn btn-secondary btn-sm" onclick="clearAll()">Clear</button>
-      <button class="btn btn-primary" id="mainBtn" onclick="handleMain()">Generate plan →</button>
+      <button class="btn btn-primary" id="mainBtn" onclick="generatePlan()">Suggest plan →</button>
     </div>
   </div>
 
-  <div class="right-panel" id="suggestPanel">
+  <div class="build-panel" id="mainPanel">
     <div class="empty-state">
       <div class="icon">◳</div>
-      <p>Mark completed courses, configure your settings, then click <strong>Generate plan</strong>.</p>
+      <p>Mark completed courses and configure your settings, then click <strong>Suggest plan</strong> — or add courses directly to the grid below.</p>
     </div>
   </div>
-  <div class="build-panel" id="buildPanel" style="display:none;"></div>
 </div>
 
 <script>
@@ -305,8 +297,7 @@ function parseCurriculumCSV(text) {
   return rows.slice(1).filter(r => r[0]).map(r => {
     const o = {};
     headers.forEach((h,i) => o[h.trim()] = (r[i]||'').trim());
-    // Convert prereq string to OR-group array
-    // Format: "A; B; (C or D)" → [["A"],["B"],["C","D"]]
+    // Prerequisites → OR-group array: semicolons = AND, 'or' = OR within group
     const prereqStr = o.prerequisites || '';
     if (!prereqStr) { o.prereqGroups = []; }
     else {
@@ -318,62 +309,66 @@ function parseCurriculumCSV(text) {
     // Available quarters: merge primary + alternate
     const primary = (o.primary_quarter||'').split(/[;|]/).map(s=>s.trim()).filter(Boolean);
     const alt     = (o.alternate_quarters||'').split(/[;|]/).map(s=>s.trim()).filter(Boolean);
-    o.availableIn = [...new Set([...primary,...alt])];
-    o.primaryIn   = primary;
-    o.credits     = parseInt(o.credits)||0;
+    o.availableIn    = [...new Set([...primary,...alt])];
+    o.primaryIn      = primary;
+    o.credits        = parseInt(o.credits)||0;
+    o.contact_hours  = parseInt(o.contact_hours)||o.credits;
+    // Plans: 'all' or semicolon-separated list of plan IDs this course belongs to
+    o.planList = (o.plans||'all').split(';').map(s=>s.trim()).filter(Boolean);
+    // Plan overrides: "calculus_abc:Summer" or "rose2_mme:Year 2:Fall"
+    o.planOverrides = {};
+    (o.plan_overrides||'').split(';').forEach(part=>{
+      part = part.trim(); if(!part) return;
+      const segs = part.split(':').map(s=>s.trim());
+      if (segs.length===2) o.planOverrides[segs[0]] = {quarter:segs[1]};
+      else if (segs.length>=3) o.planOverrides[segs[0]] = {yearLabel:segs[1], quarter:segs[2]};
+    });
     return o;
   });
 }
-
 function parsePlanCSV(text) {
   const lines = text.replace(/\r/g,'').split('\n').filter(l=>l.trim());
-  
-  // Split into sections by blank line or section header
   let section = 'meta';
   const meta = {};
   const electiveReqs = {};
   const preRhit = [];
-  const schedule = [];
+  const ELEC_LABELS = {hssa:'HSSA Elective',tech:'Technical Elective',ms:'Math/Science Elective',free:'Free Elective'};
 
   for (const line of lines) {
     const cells = parseCSV(line)[0] || [];
     const first = (cells[0]||'').trim();
-
-    if (first === 'elective_requirements') { section='elec'; continue; }
-    if (first === 'pre_rhit_credits')      { section='prerhit'; continue; }
-    if (first === 'schedule')              { section='schedule'; continue; }
-    if (first === 'plan_id' || first === 'type' || first === 'year_num' || first === 'course_id') continue; // header rows
-
-    if (section === 'meta' && first) {
-      // plan_id,plan_name,total_credits,notes
-      if (first && cells[1]) {
-        meta.id    = cells[0]; meta.name  = cells[1];
-        meta.totalCredits = parseInt(cells[2])||0;
-        meta.notes = cells[3]||'';
-      }
+    if (first === 'elective_credits') { section='elec'; continue; }
+    if (first === 'pre_rhit_credits') { section='prerhit'; continue; }
+    if (['plan_id','hssa_credits','course_id'].includes(first)) continue; // header rows
+    if (section === 'meta' && first && cells[1]) {
+      meta.id = cells[0]; meta.name = cells[1];
+      meta.totalCredits = parseInt(cells[2])||0;
+      meta.notes = cells[3]||'';
     } else if (section === 'elec' && first) {
-      electiveReqs[first] = { label: cells[1], count: parseInt(cells[2])||0 };
+      // Row: hssa_credits,tech_credits,ms_credits,free_credits (single data row)
+      const keys = ['hssa','tech','ms','free'];
+      keys.forEach((k,i)=>{
+        const cr = parseInt(cells[i])||0;
+        if (cr > 0) electiveReqs[k] = { label:ELEC_LABELS[k], credits:cr, count:Math.ceil(cr/4) };
+      });
     } else if (section === 'prerhit' && first) {
       preRhit.push({ id:cells[0], title:cells[1], credits:parseInt(cells[2])||0 });
-    } else if (section === 'schedule' && first) {
-      schedule.push({
-        yearNum:   parseInt(cells[0])||1,
-        yearLabel: cells[1],
-        quarter:   cells[2],
-        courseId:  cells[3],
-        title:     cells[4],
-        credits:   parseInt(cells[5])||0,
-        slotType:  cells[6]||'core',
-      });
     }
   }
-  return { meta, electiveReqs, preRhit, schedule };
+  return { meta, electiveReqs, preRhit, schedule:[] };
+}
+// Map course number prefix to curriculum year label
+function yearFromCourseId(id) {
+  const num = parseInt((id.match(/\d+/)||[])[0]||'0');
+  if (num >= 400) return 'Senior';
+  if (num >= 300) return 'Junior';
+  if (num >= 200) return 'Sophomore';
+  return 'Freshman';
 }
 
 async function loadAllData() {
-  // Detect base path — same directory as this HTML file
   const base = window.location.href.replace(/\/[^\/]*$/, '/');
-  
+
   try {
     const currText = await fetchText(base + 'ME_curriculum.csv');
     COURSES = parseCurriculumCSV(currText);
@@ -393,35 +388,45 @@ async function loadAllData() {
     }
   }
 
-  // Supplement COURSES with any core/hssa/capstone course IDs that appear in plan
-  // schedules but have no entry in ME_curriculum.csv (e.g. MA 105/106/107, ES 205).
-  // This ensures they appear in the left panel and can be scheduled.
-  const knownIds = new Set(COURSES.map(c=>c.course_id));
-  Object.values(PLANS).forEach(plan=>{
-    (plan.schedule||[]).forEach(s=>{
-      if (!s.courseId || knownIds.has(s.courseId)) return;
-      if (!['core','hssa','capstone'].includes(s.slotType)) return;
-      if (s.courseId==='EM or ME 306') return; // composite placeholder, not a real course
-      // Build a minimal course object so it participates in scheduling
-      const primary = s.quarter==='Summer' ? 'Summer' : s.quarter;
-      COURSES.push({
-        course_id:    s.courseId,
-        title:        s.title || s.courseId,
-        credits:      s.credits || 4,
-        year:         s.yearLabel,
-        primary_quarter: primary,
-        alternate_quarters: '',
-        prerequisites: '',
-        notes:        'Added from plan schedule',
-        prereqGroups: [],
-        availableIn:  [primary],
-        primaryIn:    [primary],
-      });
-      knownIds.add(s.courseId);
+  // Generate plan.schedule from COURSES for each plan.
+  // Replaces hardcoded schedule rows in plan CSVs — curriculum CSV is now the source of truth.
+  const ROSE2_YEAR = {Freshman:'Year 1',Sophomore:'Year 2',Junior:'Year 3',Senior:'Year 4'};
+  Object.entries(PLANS).forEach(([planId, plan])=>{
+    const isRose2 = planId==='rose2_mme' || planId==='rose2_mem';
+    const schedule = [];
+    COURSES.forEach(c=>{
+      const inPlan = c.planList.includes('all') || c.planList.includes(planId);
+      if (!inPlan) return;
+      // EM 306 / ME 306 handled as composite placeholder — added separately below
+      if (c.course_id==='EM 306' || c.course_id==='ME 306') return;
+
+      const override  = c.planOverrides[planId] || {};
+      const yearLabel = isRose2
+        ? (ROSE2_YEAR[override.yearLabel || yearFromCourseId(c.course_id)] || 'Year 1')
+        : (override.yearLabel || yearFromCourseId(c.course_id));
+      const quarter   = override.quarter || c.primaryIn[0] || 'Fall';
+      const yearNum   = parseInt(yearLabel.replace(/\D/g,''))||
+        (['Freshman','Year 1'].includes(yearLabel)?1:
+         ['Sophomore','Year 2'].includes(yearLabel)?2:
+         ['Junior','Year 3'].includes(yearLabel)?3:4);
+
+      schedule.push({ yearNum, yearLabel, quarter,
+        courseId:c.course_id, title:c.title, credits:c.credits, slotType:c.type||'core' });
     });
+
+    // Add EM or ME 306 composite slot for year/quarter lookup
+    const ctrl = COURSES.find(c=>c.course_id==='EM 306');
+    if (ctrl) {
+      const ov = ctrl.planOverrides[planId]||{};
+      const ctrlYr = isRose2
+        ? (ROSE2_YEAR[ov.yearLabel||yearFromCourseId('EM 306')]||'Year 3')
+        : (ov.yearLabel||yearFromCourseId('EM 306'));
+      schedule.push({ yearNum:3, yearLabel:ctrlYr, quarter:ov.quarter||ctrl.primaryIn[0]||'Winter',
+        courseId:'EM or ME 306', title:'Vibration or Control Systems', credits:4, slotType:'core' });
+    }
+    plan.schedule = schedule;
   });
 }
-
 // ═══════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════
@@ -532,13 +537,17 @@ function buildElectiveCounters() {
   Object.entries(reqs).forEach(([key,req]) => {
     if (!req.count) return;
     if (!electiveDone[key]) electiveDone[key] = 0;
+    const creditTotal = req.credits || req.count * 4;
     const row = document.createElement('div'); row.className='config-row';
-    row.innerHTML = `<label style="font-size:10px">${req.label}</label>
-      <div class="counter-ctrl">
-        <button class="counter-btn" id="${key}Minus" onclick="changeCounter('${key}',-1)">−</button>
-        <span class="counter-val" id="${key}Val">${electiveDone[key]||0}</span>
-        <button class="counter-btn" id="${key}Plus"  onclick="changeCounter('${key}', 1)">+</button>
-        <span class="counter-of">/ ${req.count}</span>
+    row.style.flexWrap='wrap';
+    row.innerHTML = `<label style="font-size:10px;min-width:90px">${req.label}</label>
+      <div class="counter-ctrl" style="flex-wrap:wrap;gap:3px">
+        <button class="counter-btn" id="${key}Minus4" onclick="changeCounter('${key}',-4)" title="-4 cr">−4</button>
+        <button class="counter-btn" id="${key}Minus1" onclick="changeCounter('${key}',-1)" title="-1 cr">−1</button>
+        <span class="counter-val" id="${key}Val">${electiveDone[key]||0}</span><span style="font-size:10px;color:var(--text-faint);font-family:var(--mono)">cr</span>
+        <button class="counter-btn" id="${key}Plus1"  onclick="changeCounter('${key}', 1)" title="+1 cr">+1</button>
+        <button class="counter-btn" id="${key}Plus4"  onclick="changeCounter('${key}', 4)" title="+4 cr">+4</button>
+        <span class="counter-of">/ ${creditTotal} cr</span>
         <span class="elec-sched-indicator" id="${key}SchedInd"></span>
       </div>`;
     el.appendChild(row);
@@ -551,11 +560,13 @@ function updateElecScheduledIndicators() {
   Object.entries(reqs).forEach(([k,req])=>{
     const el=document.getElementById(k+'SchedInd');
     if (!el) return;
-    const sched=scheduledElecCounts[k]||0;
-    if (sched===0) { el.textContent=''; return; }
-    const total=(electiveDone[k]||0)+sched;
-    el.className='elec-sched-indicator'+(total>=req.count?' full':'');
-    el.textContent=`+${sched} in plan`;
+    const creditTotal=req.credits||req.count*4;
+    // scheduledElecCounts[k] is now credit-based (sum of elective slot credits in grid)
+    const schedCr=scheduledElecCounts[k]||0;
+    if (schedCr===0) { el.textContent=''; return; }
+    const totalCr=(electiveDone[k]||0)+schedCr;
+    el.className='elec-sched-indicator'+(totalCr>=creditTotal?' full':'');
+    el.textContent=`+${schedCr}cr in plan`;
   });
 }
 
@@ -642,26 +653,13 @@ function switchPlan(id) {
   buildYearSelect();
   buildElectiveCounters();
   buildCourseList();
-  if (currentMode==='build') renderBuild();
-  else {
-    document.getElementById('suggestPanel').innerHTML=`<div class="empty-state"><div class="icon">◳</div><p>Plan switched to <strong>${PLANS[id]?.meta?.name||id}</strong>. Mark completed courses then click <strong>Generate plan</strong>.</p></div>`;
-  }
+  initGrid(); renderBuild();
 }
 
-function switchMode(mode) {
-  currentMode=mode;
-  document.getElementById('tab-suggest').classList.toggle('active',mode==='suggest');
-  document.getElementById('tab-build').classList.toggle('active',mode==='build');
-  document.getElementById('suggestPanel').style.display=mode==='suggest'?'flex':'none';
-  document.getElementById('buildPanel').style.display=mode==='build'?'flex':'none';
-  document.getElementById('targetRow').style.display=mode==='suggest'?'':'none';
-  document.getElementById('mainBtn').textContent=mode==='suggest'?'Generate plan →':'Validate plan ✓';
-  if (mode==='build') renderBuild();
-}
-
-function handleMain() {
-  if (currentMode==='suggest') generatePlan(); else renderBuild(true);
-}
+// Mode tabs removed — single unified panel.
+// switchMode kept as no-op for compatibility with any lingering references.
+function switchMode(mode) {}
+function handleMain() { generatePlan(); }
 
 function setControl(val) {
   controlChoice=val;
@@ -683,7 +681,8 @@ function setSummer(val) {
 function changeCounter(key,d) {
   const req=activeElecReqs()[key];
   if (!req) return;
-  electiveDone[key]=Math.max(0,Math.min(req.count,(electiveDone[key]||0)+d));
+  const creditTotal=req.credits||req.count*4;
+  electiveDone[key]=Math.max(0,Math.min(creditTotal,(electiveDone[key]||0)+d));
   const v=document.getElementById(key+'Val'); if(v) v.textContent=electiveDone[key];
   syncCounterBtns();
 }
@@ -691,9 +690,14 @@ function changeCounter(key,d) {
 function syncCounterBtns() {
   const reqs=activeElecReqs();
   Object.entries(reqs).forEach(([k,req])=>{
-    const m=document.getElementById(k+'Minus'); const p=document.getElementById(k+'Plus');
-    if(m) m.disabled=(electiveDone[k]||0)===0;
-    if(p) p.disabled=(electiveDone[k]||0)===req.count;
+    const creditTotal=req.credits||req.count*4;
+    const m1=document.getElementById(k+'Minus1'); const m4=document.getElementById(k+'Minus4');
+    const p1=document.getElementById(k+'Plus1');  const p4=document.getElementById(k+'Plus4');
+    const done=electiveDone[k]||0;
+    if(m1){m1.disabled=done===0;}
+    if(m4){m4.disabled=done===0;}
+    if(p1){p1.disabled=done>=creditTotal;}
+    if(p4){p4.disabled=done>=creditTotal;}
   });
 }
 
@@ -738,14 +742,16 @@ function clearAll() {
   electiveDone={};
   scheduledCourseIds=new Set();
   scheduledElecCounts={};
+  lastDelayed=new Set();
   Object.keys(activeElecReqs()).forEach(k=>{
+    electiveDone[k]=0;
     const v=document.getElementById(k+'Val'); if(v) v.textContent=0;
   });
   syncCounterBtns();
   initGrid();
   onYearChange();
   if(currentMode==='suggest'){
-    document.getElementById('suggestPanel').innerHTML=`<div class="empty-state"><div class="icon">◳</div><p>Mark completed courses then click <strong>Generate plan</strong>.</p></div>`;
+    initGrid(); renderBuild();
   } else renderBuild();
 }
 
@@ -755,7 +761,6 @@ function clearAll() {
 function generatePlan() {
   const startQ  = document.getElementById('startQuarter').value;
   const startYr = document.getElementById('startYear').value;
-  const target  = Math.max(12,Math.min(18,parseInt(document.getElementById('targetCredits').value)||16));
   const plan    = activePlan();
   if (!plan) return;
 
@@ -764,136 +769,190 @@ function generatePlan() {
   const sy = yearNames.indexOf(startYr);
   const sqIdx = ALL_QUARTERS.indexOf(startQ);
   const allQ = [];
-  const safeYi = Math.max(0, sy); // guard against -1 if year name not found
-  // Determine which quarters to iterate for scheduling.
-  // Summer is always included in the scheduling sequence if the active plan
-  // has any Summer slots (e.g. Calculus ABC's required MA 113 summer).
-  // This is independent of the showSummer display toggle.
+  const safeYi = Math.max(0, sy);
   const planHasSummer = plan.schedule.some(s=>s.quarter==='Summer');
   const schedQuarters = (showSummer || planHasSummer) ? ALL_QUARTERS : ['Fall','Winter','Spring'];
   for (let yi=safeYi;yi<yearNames.length;yi++)
     for (let qi=0;qi<schedQuarters.length;qi++){
       const quarter=schedQuarters[qi];
-      // For the starting year, skip quarters before the start quarter
       if (yi===safeYi && ALL_QUARTERS.indexOf(quarter)<sqIdx) continue;
       allQ.push({year:yearNames[yi],quarter,yi,qi:ALL_QUARTERS.indexOf(quarter)});
     }
 
-  // Courses needing scheduling (state=0, excluding unchosen control and pre-RHIT courses)
-  // Plan CSVs use 'EM or ME 306' as placeholder — match against chosen control course
+  // Year index of 'Senior' (or 'Year 4' for Rose² plans) — used for finish-by-senior goal
+  const seniorYi = Math.max(
+    yearNames.indexOf('Senior'), yearNames.indexOf('Year 4'), 0
+  );
+
+  // Courses needing scheduling
   const preRhitIds = new Set((plan.preRhit||[]).map(c=>c.id).filter(Boolean));
+  const gridPlacedIds = new Set();
+  const gridElecPlaced = {};
+  buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{
+    if (s.kind==='course') gridPlacedIds.add(s.id);
+    else if (s.kind==='elective') gridElecPlaced[s.electiveType]=(gridElecPlaced[s.electiveType]||0)+(s.credits||4);
+  })));
+
   const needed = COURSES.filter(c=>{
     if (getState(c.course_id)!==0) return false;
-    if (preRhitIds.has(c.course_id)) return false; // already satisfied as pre-RHIT credit
+    if (preRhitIds.has(c.course_id)) return false;
+    if (gridPlacedIds.has(c.course_id)) return false;
     if (c.course_id==='EM 306' && controlChoice!=='EM 306') return false;
     if (c.course_id==='ME 306' && controlChoice!=='ME 306') return false;
-    const inPlan = plan.schedule.some(s=>
+    return plan.schedule.some(s=>
       s.courseId===c.course_id ||
       (s.courseId==='EM or ME 306' && c.course_id===controlChoice)
     );
-    return inPlan;
   });
 
-  // Electives still needed — count from plan schedule slots (authoritative),
-  // subtract how many the student has already completed.
   const reqs = activeElecReqs();
-  // Count elective slots defined in this plan's schedule
-  const planElecSlots = {};
-  plan.schedule.forEach(s=>{
-    if (!s.slotType.startsWith('elective')) return;
-    const k = s.slotType.replace('elective-','');
-    planElecSlots[k] = (planElecSlots[k]||0) + 1;
-  });
   const eLeft = {};
-  // Use plan slot count as the total needed; fall back to reqs count if plan has no slots
-  Object.keys({...reqs,...planElecSlots}).forEach(k=>{
-    const totalNeeded = planElecSlots[k] || reqs[k]?.count || 0;
-    eLeft[k] = Math.max(0, totalNeeded - (electiveDone[k]||0));
+  Object.keys(reqs).forEach(k=>{
+    const totalCr = reqs[k]?.credits || (reqs[k]?.count||0)*4;
+    eLeft[k] = Math.max(0, totalCr - (electiveDone[k]||0) - (gridElecPlaced[k]||0));
   });
 
-  // Standard year lookup (from plan schedule)
-  // Map both the real course IDs and the composite 'EM or ME 306' placeholder
   const stdYear = {};
   plan.schedule.forEach(s=>{
     if(!stdYear[s.courseId]) stdYear[s.courseId]=yearNames.indexOf(s.yearLabel);
-    // Map composite control-course placeholder to the chosen course
     if(s.courseId==='EM or ME 306') stdYear[controlChoice]=yearNames.indexOf(s.yearLabel);
   });
 
+  // Seed sat with already-placed and equivalency-expanded courses
   let sat = satisfied();
+  gridPlacedIds.forEach(id=>{ sat.add(id); expandEquiv(sat); });
+
+  function expandEquiv(s) {
+    if(s.has('MA 105')||s.has('MA 111')){s.add('MA 105');s.add('MA 111');}
+    if(s.has('MA 106')||s.has('MA 112')){s.add('MA 106');s.add('MA 112');}
+    if(s.has('MA 107')||s.has('MA 113')){s.add('MA 107');s.add('MA 113');}
+    if(s.has('ES 205')||s.has('ES 305')){s.add('ES 205');s.add('ES 305');}
+    if(s.has('CHEM 111')||s.has('BIO 101')){s.add('CHEM 111');s.add('BIO 101');}
+  }
+
   let remaining = [...needed];
   const eScheduled = {};
   Object.keys(eLeft).forEach(k=>eScheduled[k]=0);
   const schedule = [];
   const delayed  = new Set();
 
-  for (const {year,quarter,yi} of allQ) {
-    const qCourses=[]; let qCr=0;
+  // ── Contact-hours-aware scheduler ───────────────────────────────────────────
+  // Goal: distribute contact hours as evenly as possible across all remaining
+  // quarters, stay within 12–18 credit bounds, finish by Senior year if possible.
 
-    // Eligible courses: available this quarter + prereqs met.
-    // No hard year gate — a student ready for upper-level work can take it early.
-    const eligible=remaining.filter(c=>
-      availInQ(c,quarter) && prereqsMet(c,sat)
+  for (let pass=0; pass<allQ.length; pass++) {
+    const {year,quarter,yi} = allQ[pass];
+    const qi2 = ALL_QUARTERS.indexOf(quarter);
+
+    // Credits already placed in this quarter by the student
+    const existingQCr = yi<buildGrid.length
+      ? buildGrid[yi][qi2].reduce((s,sl)=>
+          s+(sl.kind==='course'?(courseById(sl.id)?.credits||0):(sl.credits||4)),0)
+      : 0;
+    const existingQCh = yi<buildGrid.length
+      ? buildGrid[yi][qi2].reduce((s,sl)=>{
+          if(sl.kind==='course'){const c=courseById(sl.id);return s+(c?.contact_hours||c?.credits||0);}
+          return s+(sl.credits||4);
+        },0)
+      : 0;
+
+    // How many quarters remain (including this one) up through Senior year?
+    // Used to compute the per-quarter contact-hour target.
+    const quartersRemaining = allQ.slice(pass).filter(q=>q.yi<=seniorYi).length
+      || allQ.slice(pass).length || 1;
+
+    // Total contact hours left to schedule (courses + electives at 4ch each)
+    const remCourseCh = remaining.reduce((s,c)=>s+(c.contact_hours||c.credits||0),0);
+    const remElecCh   = Object.values(eLeft).reduce((s,v)=>s+v,0); // credits ≈ ch for electives
+    const totalRemCh  = remCourseCh + remElecCh;
+
+    // Target contact hours this quarter: spread evenly, but clamp to 12–18 credit window
+    // We use contact hours for the distribution target but enforce credit bounds for enrollment.
+    const rawChTarget = Math.ceil(totalRemCh / quartersRemaining);
+    const chTarget    = Math.max(12, Math.min(18, rawChTarget + existingQCh)) - existingQCh;
+
+    // Eligible courses this quarter
+    const eligible = remaining.filter(c=>
+      availInQ(c, quarter) && prereqsMet(c, sat)
     );
+
+    // Sort priority: overdue > earlier stdYear > capstone-last > primary-quarter-first
     eligible.sort((a,b)=>{
       const aStd=stdYear[a.course_id]??99, bStd=stdYear[b.course_id]??99;
-      // Overdue courses (plan year already passed) come first
       const aLate=aStd<yi?1:0, bLate=bStd<yi?1:0;
       if (aLate!==bLate) return bLate-aLate;
-      // Then prefer courses from earlier plan years (stay close to standard sequence)
-      if (aStd!==bStd) return aStd-bStd;
-      // Capstones last within a year
+      if (aStd!==bStd)   return aStd-bStd;
       if (a.type==='capstone'&&b.type!=='capstone') return 1;
       if (b.type==='capstone'&&a.type!=='capstone') return -1;
-      // Primary quarter before alternate
       return (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
     });
 
+    const qCourses = [];
+    let qCr = existingQCr;
+    let qCh = existingQCh;
+    const pendingSat = new Set();
+
+    // Greedy fill: add courses as long as doing so keeps us ≤18cr and ≤chTarget ch.
+    // If adding a course would exceed chTarget but we're still under 12cr, allow it
+    // (must reach the minimum).  Never exceed 18cr.
     for (const c of eligible) {
-      if (qCr+c.credits>18) continue;
+      if (qCr + c.credits > 18) continue;
+      const ch = c.contact_hours || c.credits;
+      // Skip if we're at or above chTarget AND already meeting minimum credit load
+      if (qCh + ch > chTarget + 2 && qCr >= 12) continue; // +2 tolerance to avoid getting stuck
       if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
       qCourses.push(c);
-      qCr+=c.credits;
-      sat=new Set([...sat,c.course_id]);
-      // Expand equivalencies so downstream prereqs unlock correctly
-      if(sat.has('MA 105')||sat.has('MA 111')){sat.add('MA 105');sat.add('MA 111');}
-      if(sat.has('MA 106')||sat.has('MA 112')){sat.add('MA 106');sat.add('MA 112');}
-      if(sat.has('MA 107')||sat.has('MA 113')){sat.add('MA 107');sat.add('MA 113');}
-      if(sat.has('ES 205')||sat.has('ES 305')){sat.add('ES 205');sat.add('ES 305');}
-      if(sat.has('CHEM 111')||sat.has('BIO 101')){sat.add('CHEM 111');sat.add('BIO 101');}
-      remaining=remaining.filter(x=>x.course_id!==c.course_id);
-      if (qCr>=target) break;
+      qCr += c.credits;
+      qCh += ch;
+      pendingSat.add(c.course_id);
+      remaining = remaining.filter(x=>x.course_id!==c.course_id);
     }
 
-    // Fill electives from plan's scheduled positions
-    // Use plan schedule as a guide for which electives go where
-    const planQSlots=plan.schedule.filter(s=>s.yearLabel===year&&s.quarter===quarter&&s.slotType.startsWith('elective'));
-    planQSlots.forEach(slot=>{
-      const key=slot.slotType.replace('elective-','');
-      if (eScheduled[key]!==undefined && eScheduled[key]<(eLeft[key]||0) && qCr+4<=18) {
-        qCourses.push({course_id:slot.courseId||slot.slotType, title:slot.title||reqs[key]?.label||key, credits:4, type:slot.slotType});
-        qCr+=4; eScheduled[key]++;
-      }
-    });
+    // Merge pendingSat → sat for next quarter
+    pendingSat.forEach(id=>sat.add(id));
+    expandEquiv(sat);
 
-    // Any remaining electives not yet placed — fill greedily
-    if (quarter!=='Summer') {
+    // Fill elective slots — contribute to reaching chTarget
+    if (quarter !== 'Summer') {
       Object.entries(eLeft).forEach(([k,need])=>{
         while (eScheduled[k]<need && qCr+4<=18) {
+          // Only add elective if it helps reach minimum OR is within ch target
+          if (qCh + 4 > chTarget + 2 && qCr >= 12) return;
           qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
-          qCr+=4; eScheduled[k]++;
-          if (qCr>=target) return;
+          qCr+=4; qCh+=4; eScheduled[k]+=4;
         }
       });
     }
 
-    if (qCourses.length>0) schedule.push({year,quarter,courses:qCourses,credits:qCr});
+    if (qCourses.length > 0) schedule.push({year,quarter,courses:qCourses,credits:qCr,contactHours:qCh});
 
-    const done=remaining.length===0&&Object.keys(eLeft).every(k=>eScheduled[k]>=(eLeft[k]||0));
+    const done = remaining.length===0 && Object.keys(eLeft).every(k=>eScheduled[k]>=(eLeft[k]||0));
     if (done) break;
   }
 
-  renderSuggest(schedule,startQ,startYr,target,delayed,plan);
+  // Merge suggested schedule into buildGrid — preserve what the student already placed.
+  // Only add courses/electives not already present in each cell.
+  const yearNames2 = getPlanYearNames();
+  schedule.forEach(q=>{
+    const yi=yearNames2.indexOf(q.year);
+    const qi=ALL_QUARTERS.indexOf(q.quarter);
+    if(yi<0||qi<0) return;
+    q.courses.forEach(c=>{
+      if(c.type&&c.type.startsWith('elective-')){
+        buildGrid[yi][qi].push({kind:'elective',electiveType:c.type.replace('elective-',''),credits:c.credits||4});
+      } else {
+        // Only add if not already in this cell
+        if(!buildGrid[yi][qi].some(s=>s.kind==='course'&&s.id===c.course_id)){
+          buildGrid[yi][qi].push({kind:'course',id:c.course_id});
+        }
+      }
+    });
+  });
+  // Store for Excel export
+  lastSchedule=schedule; lastSchedulePlan=plan;
+  // Mark delayed courses so renderBuild can flag them
+  lastDelayed=delayed;
+  renderBuild();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -914,7 +973,7 @@ function renderSuggest(schedule,startQ,startYr,target,delayed,plan) {
   }));
   buildCourseList();
   updateElecScheduledIndicators();
-  const panel=document.getElementById('suggestPanel');
+  const panel=document.getElementById('mainPanel');
   const byYear={};
   schedule.forEach(q=>{(byYear[q.year]=byYear[q.year]||[]).push(q);});
 
@@ -1032,7 +1091,12 @@ function unplacedCourses() {
 function addToCell(yi,qi,val) {
   if (!val) return;
   if (val.startsWith('__elec__')) {
-    buildGrid[yi][qi].push({kind:'elective',electiveType:val.replace('__elec__','')});
+    const etype=val.replace('__elec__','');
+    const input=prompt('How many credits is this elective?','4');
+    if (input===null) return; // cancelled
+    const cr=parseInt(input);
+    if (isNaN(cr)||cr<1||cr>18) { alert('Please enter a valid credit value (1–18).'); return; }
+    buildGrid[yi][qi].push({kind:'elective',electiveType:etype,credits:cr});
   } else {
     for(let y=0;y<6;y++) for(let q=0;q<4;q++)
       if(buildGrid[y][q].some(s=>s.kind==='course'&&s.id===val)) return;
@@ -1047,7 +1111,7 @@ function removeFromCell(yi,qi,idx) {
 }
 
 function renderBuild() {
-  const panel=document.getElementById('buildPanel');
+  const panel=document.getElementById('mainPanel');
   const plan=activePlan();
   const yearNames=getPlanYearNames();
   const reqs=activeElecReqs();
@@ -1068,8 +1132,15 @@ function renderBuild() {
   buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{
     if(s.kind==='elective'&&ePlaced[s.electiveType]!==undefined) ePlaced[s.electiveType]++;
   })));
+  // eTotal is credit-based: electiveDone (credits) + placed credits from grid
+  const ePlacedCr={};
+  Object.keys(reqs).forEach(k=>ePlacedCr[k]=0);
+  buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{
+    if(s.kind==='elective'&&ePlacedCr[s.electiveType]!==undefined)
+      ePlacedCr[s.electiveType]+=(s.credits||4);
+  })));
   const eTotal={};
-  Object.keys(reqs).forEach(k=>eTotal[k]=(electiveDone[k]||0)+(ePlaced[k]||0));
+  Object.keys(reqs).forEach(k=>eTotal[k]=(electiveDone[k]||0)+(ePlacedCr[k]||0));
 
   // Core completion
   const planCores=plan?plan.schedule.filter(s=>['core','hssa','capstone'].includes(s.slotType)).map(s=>s.courseId).filter(id=>id&&!id.includes('or ME')&&!id.includes('Elective')):[];
@@ -1079,13 +1150,22 @@ function renderBuild() {
     return false;
   });
 
+  // Compute total contact hours across the whole grid
+  const totalGridCh = buildGrid.reduce((tot,yr)=>
+    tot+yr.reduce((ys,q)=>
+      ys+q.reduce((qs,sl)=>{
+        if(sl.kind==='course'){const c=courseById(sl.id);return qs+(c?.contact_hours||c?.credits||0);}
+        return qs+(sl.credits||4);
+      },0),0),0);
   let html=`<div class="plan-container"><div class="build-summary">`;
+  if(totalGridCh>0) html+=`<span style="font-size:10px;color:var(--text-muted);font-family:var(--mono)">Total: ${totalGridCh}ch planned</span>`;
   const cStatus=coreDone.length===planCores.length?'met':coreDone.length>0?'partial':'unmet';
   html+=`<span class="req-badge ${cStatus}">Core: ${coreDone.length}/${planCores.length}</span>`;
   Object.entries(reqs).forEach(([k,req])=>{
+    const creditTotal=req.credits||req.count*4;
     const have=eTotal[k]||0;
-    const cls=have>=req.count?'met':have>0?'partial':'unmet';
-    html+=`<span class="req-badge ${cls}">${(req.label||k).split(' ')[0]}: ${have}/${req.count}</span>`;
+    const cls=have>=creditTotal?'met':have>0?'partial':'unmet';
+    html+=`<span class="req-badge ${cls}">${(req.label||k).split(' ')[0]}: ${have}/${creditTotal}cr</span>`;
   });
   html+=`</div>`;
 
@@ -1102,12 +1182,16 @@ function renderBuild() {
       const qSat=qSatMap[y*4+qi];
       const isSummer=qName==='Summer';
       let qCr=0;
-      slots.forEach(s=>{if(s.kind==='course'){const c=courseById(s.id);if(c)qCr+=c.credits;}else qCr+=4;});
+      slots.forEach(s=>{if(s.kind==='course'){const c=courseById(s.id);if(c)qCr+=c.credits;}else qCr+=(s.credits||4);});
       const crClass=qCr===0?'':qCr<12?'under':qCr>18?'over':'ok';
 
       html+=`<div class="build-quarter ${isSummer?'summer-col':''}">`;
+      const qCh2=slots.reduce((s,sl)=>{
+        if(sl.kind==='course'){const c=courseById(sl.id);return s+(c?.contact_hours||c?.credits||0);}
+        return s+(sl.credits||4);
+      },0);
       html+=`<div class="quarter-header"><span class="quarter-name ${isSummer?'summer-name':''}">${qName}</span>
-        ${qCr>0?`<span class="quarter-credits ${crClass}">${qCr} cr</span>`:''}</div>`;
+        ${qCr>0?`<span class="quarter-credits ${crClass}">${qCr}cr<span style="color:var(--text-faint);font-weight:400"> / ${qCh2}ch</span></span>`:''}</div>`;
       html+=`<div class="course-cards">`;
 
       slots.forEach((s,idx)=>{
@@ -1121,10 +1205,12 @@ function renderBuild() {
           let errs='';
           if(!pOk){const miss=c.prereqGroups.filter(g=>!g.some(id=>qSat.has(id))).map(g=>g.join(' or '));errs+=`<div class="build-err">Missing: ${miss.join('; ')}</div>`;}
           if(!aOk){const off=(c.primary_quarter+(c.alternate_quarters?'; '+c.alternate_quarters:'')).split(/[;|]/).map(s=>s.trim()).join(', ');errs+=`<div class="build-warn">Not offered ${qName} (offered: ${off})</div>`;}
-          html+=`<div class="${cls}"><div class="build-card-body"><div class="build-card-id">${c.course_id}</div><div class="build-card-name">${c.title}</div><div class="build-card-cr">${c.credits} cr</div>${errs}</div><button class="remove-btn" onclick="removeFromCell(${y},${qi},${idx})">×</button></div>`;
+          const delayedBadge=lastDelayed.has(c.course_id)?'<span style="font-size:8px;padding:1px 3px;border-radius:2px;background:var(--purple-light);color:var(--purple);font-family:var(--mono);border:1px solid #c8a0e8;margin-left:3px">delayed</span>':'';
+          const chLabel=(c.contact_hours&&c.contact_hours!==c.credits)?` / ${c.contact_hours}ch`:'';
+          html+=`<div class="${cls}"><div class="build-card-body"><div class="build-card-id">${c.course_id}${delayedBadge}</div><div class="build-card-name">${c.title}</div><div class="build-card-cr">${c.credits}cr${chLabel}</div>${errs}</div><button class="remove-btn" onclick="removeFromCell(${y},${qi},${idx})">×</button></div>`;
         } else {
           const meta=reqs[s.electiveType]||{label:s.electiveType};
-          html+=`<div class="build-card"><div class="build-card-body"><div class="build-card-id">${s.electiveType.toUpperCase()}</div><div class="build-card-name">${meta.label||s.electiveType}</div><div class="build-card-cr">4 cr</div></div><button class="remove-btn" onclick="removeFromCell(${y},${qi},${idx})">×</button></div>`;
+          html+=`<div class="build-card"><div class="build-card-body"><div class="build-card-id">${s.electiveType.toUpperCase()}</div><div class="build-card-name">${meta.label||s.electiveType}</div><div class="build-card-cr">${s.credits||4} cr</div></div><button class="remove-btn" onclick="removeFromCell(${y},${qi},${idx})">×</button></div>`;
         }
       });
       html+=`</div>`;
@@ -1137,8 +1223,9 @@ function renderBuild() {
       if(notAvail.length){html+=`<optgroup label="Not normally offered (will flag)">`;notAvail.forEach(c=>{html+=`<option value="${c.course_id}">${c.course_id} — ${c.title}</option>`;});html+=`</optgroup>`;}
       html+=`<optgroup label="Elective slots">`;
       Object.entries(reqs).forEach(([k,req])=>{
-        const rem=Math.max(0,req.count-(eTotal[k]||0));
-        if(rem>0) html+=`<option value="__elec__${k}">${req.label} (${rem} left)</option>`;
+        const creditTotal=req.credits||req.count*4;
+        const remCr=Math.max(0,creditTotal-(eTotal[k]||0));
+        if(remCr>0) html+=`<option value="__elec__${k}">${req.label} (${remCr}cr left)</option>`;
       });
       html+=`</optgroup></select>`;
       html+=`</div>`;
@@ -1158,7 +1245,7 @@ function renderBuild() {
   buildGrid.forEach(yr=>yr.forEach(q=>q.forEach(s=>{
     if (s.kind==='course') scheduledCourseIds.add(s.id);
   })));
-  scheduledElecCounts = {...ePlaced}; // ePlaced already tallied above
+  scheduledElecCounts = {...ePlacedCr}; // credit-based tallies
   buildCourseList();
   updateElecScheduledIndicators();
 }
@@ -1168,6 +1255,7 @@ function renderBuild() {
 // ═══════════════════════════════════════════════════════════
 let lastSchedule = null;
 let lastSchedulePlan = null;
+let lastDelayed = new Set();
 let scheduledCourseIds = new Set();
 let scheduledElecCounts = {};
 
