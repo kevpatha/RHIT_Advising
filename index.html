@@ -912,14 +912,46 @@ function generatePlan() {
     pendingSat.forEach(id=>sat.add(id));
     expandEquiv(sat);
 
-    // Fill elective slots — contribute to reaching chTarget
+    // Fill elective slots — contribute to reaching chTarget.
+    // HSSA electives are distributed evenly across all non-summer quarters;
+    // other elective types fill greedily (they belong in upper years anyway).
     if (quarter !== 'Summer') {
-      Object.entries(eLeft).forEach(([k,need])=>{
-        while (eScheduled[k]<need && qCr+4<=18) {
-          // Only add elective if it helps reach minimum OR is within ch target
-          if (qCh + 4 > chTarget + 2 && qCr >= 12) return;
-          qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
-          qCr+=4; qCh+=4; eScheduled[k]+=4;
+      const nonSummerQsRemaining = allQ.slice(pass).filter(q=>q.quarter!=='Summer').length || 1;
+
+      Object.entries(eLeft).forEach(([k, need])=>{
+        if (eScheduled[k] >= need) return;
+
+        if (k === 'hssa') {
+          // HSSA distribution by YEAR: spread remaining HSSA credits evenly across
+          // remaining years (not quarters). Allow at most 1 slot per year, so they
+          // land early in each year when there's room.
+          // Count distinct years remaining (including current).
+          const yearsRemaining = [...new Set(
+            allQ.slice(pass).filter(q=>q.quarter!=='Summer'&&q.yi<=seniorYi).map(q=>q.yi)
+          )].length || 1;
+          const hssaSlotsLeft = Math.ceil((need - eScheduled[k]) / 4);
+          // Already placed HSSA in this year?
+          const hssaThisYear = qCourses.filter(c=>c.type==='elective-hssa').length +
+            (yi < buildGrid.length
+              ? buildGrid[yi].reduce((s,q)=>s+q.filter(sl=>sl.kind==='elective'&&sl.electiveType==='hssa').length,0)
+              : 0);
+          // Allow 1 per year normally; allow 2 if falling behind
+          const maxThisYear = hssaSlotsLeft > yearsRemaining ? 2 : 1;
+          if (hssaThisYear < maxThisYear) {
+            let toPlace = maxThisYear - hssaThisYear;
+            while (toPlace > 0 && eScheduled[k] < need && qCr + 4 <= 18) {
+              if (qCh + 4 > chTarget + 2 && qCr >= 12) break;
+              qCourses.push({course_id:'HSSA Elective', title:reqs[k]?.label||'HSSA Elective', credits:4, type:'elective-hssa'});
+              qCr+=4; qCh+=4; eScheduled[k]+=4; toPlace--;
+            }
+          }
+        } else {
+          // Tech, ms, free — fill greedily within ch target
+          while (eScheduled[k] < need && qCr + 4 <= 18) {
+            if (qCh + 4 > chTarget + 2 && qCr >= 12) break;
+            qCourses.push({course_id:k+' Elective', title:reqs[k]?.label||k, credits:4, type:'elective-'+k});
+            qCr+=4; qCh+=4; eScheduled[k]+=4;
+          }
         }
       });
     }
