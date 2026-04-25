@@ -965,13 +965,9 @@ function generatePlan() {
     const remElecCh   = Object.entries(eLeft).reduce((s,[k,v])=>s+(eScheduled[k]<v?v-eScheduled[k]:0),0);
     const totalRemCh  = remCourseCh + remElecCh;
 
-    // Credit/ch target: aim for 16cr per quarter to finish by senior year.
-    // rawChTarget spreads remaining work evenly; we clamp to 16–18 so the
-    // scheduler always pushes toward a full load rather than coasting.
+    // Ideal ch this quarter — but NEVER hard-gate course placement on this
     const rawChTarget = Math.ceil(totalRemCh / qToSenior);
-    // Floor at 16 (target credit load) while within senior year; min 12 always
-    const chFloor  = yi <= seniorYi ? 16 : 12;
-    const chTarget = Math.max(chFloor, Math.min(18, rawChTarget + existingQCh)) - existingQCh;
+    const chTarget    = Math.max(12, Math.min(18, rawChTarget + existingQCh)) - existingQCh;
 
     // Eligible: available this quarter, prereqs met by previous quarters only
     const eligible = remaining.filter(c=> availInQ(c,quarter) && prereqsMet(c,sat));
@@ -987,14 +983,7 @@ function generatePlan() {
       if (a.type==='capstone'&&b.type!=='capstone') return 1;
       if (b.type==='capstone'&&a.type!=='capstone') return -1;
       // 4. Primary-quarter offerings before alt-quarter
-      const altDiff = (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
-      if (altDiff!==0) return altDiff;
-      // 5. Secondary: prefer courses whose contact hours bring us closer to chTarget
-      //    (pure distribution preference among otherwise equal courses)
-      const aCh=a.contact_hours||a.credits, bCh=b.contact_hours||b.credits;
-      const aOver=Math.abs((qCh+aCh)-chTarget);
-      const bOver=Math.abs((qCh+bCh)-chTarget);
-      return aOver-bOver;
+      return (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
     });
 
     if (!hssaPlacedInYear[yi]) hssaPlacedInYear[yi] = 0;
@@ -1021,11 +1010,7 @@ function generatePlan() {
     const pendingSat = new Set();
 
     for (const c of eligible) {
-      // Named HSSA courses (HUM H190, ENGL H290) always use 18cr cap —
-      // they don't consume the generic elective slot, so the reservation
-      // doesn't apply to them.
-      const cap = (reserveHSSA && c.type !== 'hssa') ? crCap : 18;
-      if (qCr + c.credits > cap) continue;
+      if (qCr + c.credits > crCap) continue;
       if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
       qCourses.push(c);
       qCr += c.credits;
@@ -1034,7 +1019,9 @@ function generatePlan() {
       remaining = remaining.filter(x=>x.course_id!==c.course_id);
     }
 
-    // Second pass: fit any remaining non-HSSA courses blocked by crCap reservation
+    // Second pass: fit any remaining non-HSSA courses that were blocked by crCap
+    // HSSA-type courses are excluded here — they count toward the year's HSSA total
+    // and would consume the slot reserved for a generic HSSA elective.
     if (reserveHSSA) {
       for (const c of eligible.filter(c=>
           c.type!=='hssa' &&
