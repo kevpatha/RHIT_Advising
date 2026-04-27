@@ -811,6 +811,8 @@ function generatePlan() {
     const totalCr = reqs[k]?.credits || (reqs[k]?.count||0)*4;
     eLeft[k] = Math.max(0, totalCr - (electiveDone[k]||0) - (gridElecPlaced[k]||0));
   });
+  // Named HSSA courses (HUM H190, ENGL H290) are separate from the HSSA elective
+  // requirement — they do NOT count toward the eLeft['hssa'] credit total.
 
   const stdYear = {};
   plan.schedule.forEach(s=>{
@@ -921,30 +923,44 @@ function generatePlan() {
       : 0;
   });
 
-  // Capacity per year = max(0, HSSA_MAX_PER_YEAR - named courses already there - grid electives)
+  // Elective capacity per year: years with a named HSSA course get 1 elective slot
+  // (named + 1 elec = 2 HSSA items), years without get up to 3 slots.
+  // Senior is the overflow year and absorbs whatever remains.
   const hssaCapPerYear = {};
   planYears.forEach(yi=>{
-    hssaCapPerYear[yi] = Math.max(0,
-      HSSA_MAX_PER_YEAR - (hssaCoursesByYear[yi]||0) - (hssaElecInGrid[yi]||0)
-    );
+    const hasNamed = (hssaCoursesByYear[yi]||0) > 0;
+    const gridAlready = hssaElecInGrid[yi]||0;
+    // Named-course years: cap 1 elec. Non-named years: cap 3 elec (generous upper bound).
+    const rawCap = hasNamed ? 1 : 3;
+    hssaCapPerYear[yi] = Math.max(0, rawCap - gridAlready);
   });
 
-  // Distribute elective slots evenly: round-robin 1 slot at a time per year
-  // so no year gets a second slot before every year has at least one.
+  // Target distribution: every year gets 1 elective; overflow goes to non-named years
+  // last (Senior absorbs the most). Pattern: Frosh=1, Soph=2, Junior=1, Senior=3 for 7 slots.
   const hssaPerYear = {};
   planYears.forEach(yi=>{ hssaPerYear[yi] = 0; });
   let hssaElecRemaining = Math.ceil((eLeft['hssa']||0) / 4);
+  // First pass: give every year 1 slot (up to their cap)
+  planYears.forEach(yi=>{
+    if (hssaElecRemaining > 0 && hssaCapPerYear[yi] >= 1) {
+      hssaPerYear[yi] = 1;
+      hssaElecRemaining--;
+    }
+  });
+  // Second pass: overflow goes to non-named years (higher cap), latest years first
+  // so Senior fills up before Sophomore gets a third slot
+  const overflowOrder = [...planYears].reverse();
   let passLimit = 0;
-  while (hssaElecRemaining > 0 && passLimit < 10) {
+  while (hssaElecRemaining > 0 && passLimit < 20) {
     let placed = 0;
-    planYears.forEach(yi=>{
+    overflowOrder.forEach(yi=>{
       if (hssaElecRemaining > 0 && hssaPerYear[yi] < hssaCapPerYear[yi]) {
         hssaPerYear[yi]++;
         hssaElecRemaining--;
         placed++;
       }
     });
-    if (placed === 0) break; // no capacity left anywhere
+    if (placed === 0) break;
     passLimit++;
   }
 
@@ -989,8 +1005,6 @@ function generatePlan() {
   const freeElecPlacedInYear = {}; // yi -> slots placed so far
 
   const hssaPlacedInYear = {}; // yi -> elective slots placed so far in this year
-  console.log('[HSSA] hssaPerYear:', JSON.stringify(hssaPerYear), 'cap:', JSON.stringify(hssaCapPerYear), 'eLeft.hssa:', eLeft['hssa']);
-
   // ── Main scheduling loop ──────────────────────────────────────────────────────
   // Strategy:
   //  • Compute a per-quarter contact-hour target from total remaining ÷ quarters-to-senior
@@ -1055,7 +1069,6 @@ function generatePlan() {
     const reserveHSSA = quarter!=='Summer'
       && hssaQuotaThisYear > hssaTotalThisYear
       && eScheduled['hssa'] < (eLeft['hssa']||0);
-    if (quarter !== 'Summer') console.log(`[HSSA] ${year} ${quarter}: quota=${hssaQuotaThisYear} total=${hssaTotalThisYear} placed=${hssaPlacedInYear[yi]||0} grid=${hssaElecAlreadyGrid} eScheduled=${eScheduled['hssa']} reserve=${reserveHSSA}`);
     // Reserve room for free elective in designated year
     const freeQuotaCheck = freePerYear[yi] || 0;
     const freeGridCheck = yi<buildGrid.length
@@ -1078,14 +1091,49 @@ function generatePlan() {
     let qCh = existingQCh;
     const pendingSat = new Set();
 
+    // Determine if the HSSA quota for this year is already satisfied before we
+    // start placing courses. We use this to gate upper-level courses: a course
+    // whose number level is above the current plan year (e.g. a 200-level course
+    // in Freshman year, or a 300-level in Sophomore) is deferred until the HSSA
+    // slot for this year is confirmed filled — either by a named HSSA course
+    // already landing here, or by the reserved elective slot being guaranteed.
+    // Level thresholds: Freshman=100s, Sophomore=200s, Junior=300s, Senior=400s.
+    const yearLevelThreshold = (yi === 0 ? 200 : yi === 1 ? 300 : yi === 2 ? 400 : 500);
+    const hssaQuotaSatisfied = (hssaPerYear[yi] === 0)  // no elective needed this year
+      || (hssaElecAlreadyGrid > 0)                       // already in grid from prior run
+      || ((hssaPlacedInYear[yi]||0) >= hssaPerYear[yi]); // elective already placed this year
+
     for (const c of eligible) {
       if (qCr + c.credits > crCap) continue;
+      // Gate: if this course is above the current year's level and the HSSA quota
+      // isn't satisfied yet, skip it on the first pass. It will be picked up in the
+      // second pass below once the HSSA slot is secured.
+      const courseNum = parseInt((c.course_id.match(/\d+/)||[])[0]||'0');
+      if (courseNum >= yearLevelThreshold && !hssaQuotaSatisfied) continue;
       if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
       qCourses.push(c);
       qCr += c.credits;
       qCh += (c.contact_hours||c.credits);
       pendingSat.add(c.course_id);
       remaining = remaining.filter(x=>x.course_id!==c.course_id);
+    }
+
+    // Second pass: now that HSSA is accounted for (or quota is zero), place any
+    // upper-level courses that were deferred above, within remaining crCap space.
+    if (!hssaQuotaSatisfied) {
+      for (const c of eligible) {
+        if (pendingSat.has(c.course_id)) continue;
+        if (!remaining.some(x=>x.course_id===c.course_id)) continue;
+        if (qCr + c.credits > crCap) continue;
+        const courseNum = parseInt((c.course_id.match(/\d+/)||[])[0]||'0');
+        if (courseNum < yearLevelThreshold) continue; // already placed in first pass
+        if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
+        qCourses.push(c);
+        qCr += c.credits;
+        qCh += (c.contact_hours||c.credits);
+        pendingSat.add(c.course_id);
+        remaining = remaining.filter(x=>x.course_id!==c.course_id);
+      }
     }
 
     // Second pass: fit any remaining non-HSSA courses that were blocked by crCap
