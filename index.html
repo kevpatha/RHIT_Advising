@@ -1103,10 +1103,11 @@ function generatePlan() {
         qCr+=4; qCh+=4; eScheduled['free']+=4; freeElecPlacedInYear[yi]++;
       }
 
-      // Other electives (tech, ms): fill remaining space up to 18cr
+      // Tech electives: Senior year only. MS electives: any year.
       Object.entries(eLeft).forEach(([k,need])=>{
         if (k==='hssa' || k==='free') return;
         if (eScheduled[k] >= need) return;
+        if (k==='tech' && yi < seniorYi) return; // hold tech electives until Senior year
         while (eScheduled[k] < need && qCr + 4 <= 18) {
           qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
           qCr+=4; qCh+=4; eScheduled[k]+=4;
