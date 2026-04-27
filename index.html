@@ -864,6 +864,8 @@ function generatePlan() {
     // (MA 113 lands in Freshman Summer; MA 221 must wait until Sophomore Fall)
     const sophYi    = yearNames.indexOf('Sophomore');
     const fallQi    = ALL_QUARTERS.indexOf('Fall');
+    const winterQi  = ALL_QUARTERS.indexOf('Winter');
+    const springQi  = ALL_QUARTERS.indexOf('Spring');
     const ma221     = courseById('MA 221');
     const ma221Needed = ma221 && remaining.some(c=>c.course_id==='MA 221');
     if (ma221Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
@@ -871,7 +873,26 @@ function generatePlan() {
         buildGrid[sophYi][fallQi].push({kind:'course', id:'MA 221'});
         gridPlacedIds.add('MA 221');
         remaining = remaining.filter(c=>c.course_id!=='MA 221');
-        // Do NOT add to sat — let the loop handle it when it reaches Sophomore Fall
+      }
+    }
+    // Force MA 222 into Sophomore Winter (needs MA 221 from Fall)
+    const ma222 = courseById('MA 222');
+    const ma222Needed = ma222 && remaining.some(c=>c.course_id==='MA 222');
+    if (ma222Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
+      if (!buildGrid[sophYi][winterQi].some(s=>s.kind==='course'&&s.id==='MA 222')) {
+        buildGrid[sophYi][winterQi].push({kind:'course', id:'MA 222'});
+        gridPlacedIds.add('MA 222');
+        remaining = remaining.filter(c=>c.course_id!=='MA 222');
+      }
+    }
+    // Force MA 223 into Sophomore Spring (needs MA 221; Spring is primary for Calc ABC flow)
+    const ma223 = courseById('MA 223');
+    const ma223Needed = ma223 && remaining.some(c=>c.course_id==='MA 223');
+    if (ma223Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
+      if (!buildGrid[sophYi][springQi].some(s=>s.kind==='course'&&s.id==='MA 223')) {
+        buildGrid[sophYi][springQi].push({kind:'course', id:'MA 223'});
+        gridPlacedIds.add('MA 223');
+        remaining = remaining.filter(c=>c.course_id!=='MA 223');
       }
     }
   }
