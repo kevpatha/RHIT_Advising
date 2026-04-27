@@ -203,11 +203,18 @@ header .sub{font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);w
       <select id="startYear" onchange="onYearChange()"></select>
     </div>
 
-    <div class="config-row">
+    <div class="config-row" id="controlToggleRow">
       <label>Control course</label>
-      <div class="toggle-group">
+      <div class="toggle-group" id="controlToggle">
         <button class="toggle-opt active" data-val="EM 306" onclick="setControl('EM 306')">EM 306<br>Vibrations</button>
         <button class="toggle-opt"        data-val="ME 306" onclick="setControl('ME 306')">ME 306<br>Controls</button>
+      </div>
+    </div>
+    <div class="config-row" id="roboticsCapstoneRow" style="display:none">
+      <label>Robotics capstone</label>
+      <div class="toggle-group" id="roboticsCapstoneToggle">
+        <button class="toggle-opt active" data-val="ME 445" onclick="setRoboticsCapstone('ME 445')">ME 445<br>Robot Dynamics</button>
+        <button class="toggle-opt"        data-val="ME 404" onclick="setRoboticsCapstone('ME 404')">ME 404<br>Adv. Mechanisms</button>
       </div>
     </div>
     <div class="config-row">
@@ -283,6 +290,7 @@ const PLAN_FILES = [
   { id:'calculus_abc',name:'Calculus ABC',   file:'plan_calculus_abc.csv' },
   { id:'rose2_mme',   name:'Rose² MME',      file:'plan_rose2_mme.csv' },
   { id:'rose2_mem',   name:'Rose² MEM',      file:'plan_rose2_mem.csv' },
+  { id:'robotics',    name:'Robotics Minor',  file:'plan_robotics.csv' },
 ];
 
 async function fetchText(path) {
@@ -332,7 +340,7 @@ function parsePlanCSV(text) {
   const meta = {};
   const electiveReqs = {};
   const preRhit = [];
-  const ELEC_LABELS = {hssa:'HSSA Elective',tech:'Technical Elective',ms:'Math/Science Elective',free:'Free Elective'};
+  const ELEC_LABELS = {hssa:'HSSA Elective',tech:'Technical Elective',ms:'Math/Science Elective',free:'Free Elective',robotics:'Robotics Elective'};
 
   for (const line of lines) {
     const cells = parseCSV(line)[0] || [];
@@ -346,7 +354,7 @@ function parsePlanCSV(text) {
       meta.notes = cells[3]||'';
     } else if (section === 'elec' && first) {
       // Row: hssa_credits,tech_credits,ms_credits,free_credits (single data row)
-      const keys = ['hssa','tech','ms','free'];
+      const keys = ['hssa','tech','ms','free','robotics'];
       keys.forEach((k,i)=>{
         const cr = parseInt(cells[i])||0;
         if (cr > 0) electiveReqs[k] = { label:ELEC_LABELS[k], credits:cr, count:Math.ceil(cr/4) };
@@ -646,6 +654,7 @@ function buildCourseList() {
 // ═══════════════════════════════════════════════════════════
 function switchPlan(id) {
   activePlanId = id;
+  updateToggleVisibility();
   document.querySelectorAll('.plan-tab').forEach(b=>b.classList.toggle('active',b.textContent===PLAN_FILES.find(p=>p.id===id)?.name));
   electiveDone = {};
   scheduledCourseIds = new Set();
@@ -660,6 +669,22 @@ function switchPlan(id) {
 // switchMode kept as no-op for compatibility with any lingering references.
 function switchMode(mode) {}
 function handleMain() { generatePlan(); }
+
+let roboticsCapstone = 'ME 445';
+
+function setRoboticsCapstone(val) {
+  roboticsCapstone = val;
+  document.querySelectorAll('#roboticsCapstoneToggle .toggle-opt').forEach(b=>{
+    b.classList.toggle('active', b.dataset.val===val);
+  });
+  if (document.getElementById('mainPanel').innerHTML.trim()) generatePlan();
+}
+
+function updateToggleVisibility() {
+  const isRobotics = activePlanId === 'robotics';
+  document.getElementById('controlToggleRow').style.display = isRobotics ? 'none' : '';
+  document.getElementById('roboticsCapstoneRow').style.display = isRobotics ? '' : 'none';
+}
 
 function setControl(val) {
   controlChoice=val;
@@ -785,6 +810,20 @@ function generatePlan() {
     yearNames.indexOf('Senior'), yearNames.indexOf('Year 4'), 0
   );
 
+  // Target years for robotics minor courses (not in plan.schedule)
+  if (isRobotics) {
+    const frYi = yearNames.indexOf('Freshman');
+    const soYi = yearNames.indexOf('Sophomore');
+    const jrYi = yearNames.indexOf('Junior');
+    const srYi = yearNames.indexOf('Senior');
+    if (stdYear['CSSE 120']===undefined) stdYear['CSSE 120'] = frYi >= 0 ? frYi : 0;
+    if (stdYear['CSSE 220']===undefined) stdYear['CSSE 220'] = soYi >= 0 ? soYi : 1;
+    if (stdYear['ME 435']===undefined)   stdYear['ME 435']   = jrYi >= 0 ? jrYi : 2;
+    if (stdYear['ECE 425']===undefined)  stdYear['ECE 425']  = jrYi >= 0 ? jrYi : 2;
+    if (stdYear['ME 445']===undefined)   stdYear['ME 445']   = srYi >= 0 ? srYi : 3;
+    if (stdYear['ME 404']===undefined)   stdYear['ME 404']   = srYi >= 0 ? srYi : 3;
+  }
+
   // Courses needing scheduling
   const preRhitIds = new Set((plan.preRhit||[]).map(c=>c.id).filter(Boolean));
   const gridPlacedIds = new Set();
@@ -794,15 +833,27 @@ function generatePlan() {
     else if (s.kind==='elective') gridElecPlaced[s.electiveType]=(gridElecPlaced[s.electiveType]||0)+(s.credits||4);
   })));
 
+  const isRobotics = activePlanId === 'robotics';
   const needed = COURSES.filter(c=>{
     if (getState(c.course_id)!==0) return false;
     if (preRhitIds.has(c.course_id)) return false;
     if (gridPlacedIds.has(c.course_id)) return false;
-    if (c.course_id==='EM 306' && controlChoice!=='EM 306') return false;
-    if (c.course_id==='ME 306' && controlChoice!=='ME 306') return false;
+    // Robotics plan: ME 123 replaced by CSSE 120; EM 306 excluded; ME 306 mandatory
+    if (isRobotics && c.course_id==='ME 123') return false;
+    if (isRobotics && c.course_id==='EM 306') return false;
+    // Non-robotics: EM/ME 306 toggle
+    if (!isRobotics && c.course_id==='EM 306' && controlChoice!=='EM 306') return false;
+    if (!isRobotics && c.course_id==='ME 306' && controlChoice!=='ME 306') return false;
+    // Minor courses: include only for their plan, with ME 404/445 choice
+    if (c.type === 'minor') {
+      if (!c.planList.includes(activePlanId)) return false;
+      if (c.course_id === 'ME 404' && roboticsCapstone !== 'ME 404') return false;
+      if (c.course_id === 'ME 445' && roboticsCapstone !== 'ME 445') return false;
+      return true;
+    }
     return plan.schedule.some(s=>
       s.courseId===c.course_id ||
-      (s.courseId==='EM or ME 306' && c.course_id===controlChoice)
+      (!isRobotics && s.courseId==='EM or ME 306' && c.course_id===controlChoice)
     );
   });
 
@@ -819,6 +870,7 @@ function generatePlan() {
   plan.schedule.forEach(s=>{
     if(!stdYear[s.courseId]) stdYear[s.courseId]=yearNames.indexOf(s.yearLabel);
     if(s.courseId==='EM or ME 306') stdYear[controlChoice]=yearNames.indexOf(s.yearLabel);
+    if(s.courseId==='EM or ME 306') stdYear['ME 306']=yearNames.indexOf(s.yearLabel);
   });
 
   // Seed sat with already-placed and equivalency-expanded courses

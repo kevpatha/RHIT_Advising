@@ -1,0 +1,5 @@
+plan_id,plan_name,total_credits,notes
+robotics,Robotics Minor,,
+elective_credits,,,,
+hssa_credits,tech_credits,ms_credits,free_credits,robotics_credits
+28,0,4,4,20
