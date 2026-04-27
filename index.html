@@ -989,6 +989,7 @@ function generatePlan() {
   const freeElecPlacedInYear = {}; // yi -> slots placed so far
 
   const hssaPlacedInYear = {}; // yi -> elective slots placed so far in this year
+  console.log('[HSSA] hssaPerYear:', JSON.stringify(hssaPerYear), 'cap:', JSON.stringify(hssaCapPerYear), 'eLeft.hssa:', eLeft['hssa']);
 
   // ── Main scheduling loop ──────────────────────────────────────────────────────
   // Strategy:
@@ -1054,6 +1055,7 @@ function generatePlan() {
     const reserveHSSA = quarter!=='Summer'
       && hssaQuotaThisYear > hssaTotalThisYear
       && eScheduled['hssa'] < (eLeft['hssa']||0);
+    if (quarter !== 'Summer') console.log(`[HSSA] ${year} ${quarter}: quota=${hssaQuotaThisYear} total=${hssaTotalThisYear} placed=${hssaPlacedInYear[yi]||0} grid=${hssaElecAlreadyGrid} eScheduled=${eScheduled['hssa']} reserve=${reserveHSSA}`);
     // Reserve room for free elective in designated year
     const freeQuotaCheck = freePerYear[yi] || 0;
     const freeGridCheck = yi<buildGrid.length
