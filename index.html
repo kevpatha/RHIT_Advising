@@ -759,6 +759,7 @@ function clearAll() {
 //  SUGGEST MODE — scheduler
 // ═══════════════════════════════════════════════════════════
 function generatePlan() {
+  window._calcAbcAnchors = {}; // clear anchors from previous run
   const startQ  = document.getElementById('startQuarter').value;
   const startYr = document.getElementById('startYear').value;
   const plan    = activePlan();
@@ -862,41 +863,36 @@ function generatePlan() {
         remaining = remaining.filter(c=>c.course_id!=='MA 113');
       }
     }
-    // Force MA 221 into Sophomore Fall for Calc ABC
-    // (MA 113 lands in Freshman Summer; MA 221 must wait until Sophomore Fall)
-    const sophYi    = yearNames.indexOf('Sophomore');
-    const fallQi    = ALL_QUARTERS.indexOf('Fall');
-    const winterQi  = ALL_QUARTERS.indexOf('Winter');
-    const springQi  = ALL_QUARTERS.indexOf('Spring');
-    const ma221     = courseById('MA 221');
-    const ma221Needed = ma221 && remaining.some(c=>c.course_id==='MA 221');
-    if (ma221Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
-      if (!buildGrid[sophYi][fallQi].some(s=>s.kind==='course'&&s.id==='MA 221')) {
-        buildGrid[sophYi][fallQi].push({kind:'course', id:'MA 221'});
-        gridPlacedIds.add('MA 221');
-        remaining = remaining.filter(c=>c.course_id!=='MA 221');
-      }
+    // Force MA 221/222/223 into specific Sophomore quarters for Calc ABC.
+    // We do NOT pre-place into buildGrid (which inflates existingQCr and crowds out
+    // other courses). Instead we track them in calcAbcAnchors — the main loop will
+    // treat these as mandatory first placements when it reaches those quarters.
+    const sophYi   = yearNames.indexOf('Sophomore');
+    const fallQi   = ALL_QUARTERS.indexOf('Fall');
+    const winterQi = ALL_QUARTERS.indexOf('Winter');
+    const springQi = ALL_QUARTERS.indexOf('Spring');
+    const calcAbcAnchors = {}; // key: `${yi}-${qi}` → [courseId, ...]
+    const anchorAndSeed = (courseId, yi, qi) => {
+      const c = courseById(courseId);
+      if (!c) return;
+      if (!remaining.some(r=>r.course_id===courseId)) return; // already done/placed
+      if (yi < safeYi || yi >= buildGrid.length) return;
+      if (buildGrid[yi][qi].some(s=>s.kind==='course'&&s.id===courseId)) return;
+      const key = `${yi}-${qi}`;
+      if (!calcAbcAnchors[key]) calcAbcAnchors[key] = [];
+      calcAbcAnchors[key].push(courseId);
+      // Seed sat immediately so downstream prereqs resolve correctly
+      sat.add(courseId);
+      expandEquiv(sat);
+      gridPlacedIds.add(courseId);
+      remaining = remaining.filter(c=>c.course_id!==courseId);
+    };
+    if (sophYi >= safeYi) {
+      anchorAndSeed('MA 221', sophYi, fallQi);
+      anchorAndSeed('MA 222', sophYi, winterQi);
+      anchorAndSeed('MA 223', sophYi, springQi);
     }
-    // Force MA 222 into Sophomore Winter (needs MA 221 from Fall)
-    const ma222 = courseById('MA 222');
-    const ma222Needed = ma222 && remaining.some(c=>c.course_id==='MA 222');
-    if (ma222Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
-      if (!buildGrid[sophYi][winterQi].some(s=>s.kind==='course'&&s.id==='MA 222')) {
-        buildGrid[sophYi][winterQi].push({kind:'course', id:'MA 222'});
-        gridPlacedIds.add('MA 222');
-        remaining = remaining.filter(c=>c.course_id!=='MA 222');
-      }
-    }
-    // Force MA 223 into Sophomore Spring (needs MA 221; Spring is primary for Calc ABC flow)
-    const ma223 = courseById('MA 223');
-    const ma223Needed = ma223 && remaining.some(c=>c.course_id==='MA 223');
-    if (ma223Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
-      if (!buildGrid[sophYi][springQi].some(s=>s.kind==='course'&&s.id==='MA 223')) {
-        buildGrid[sophYi][springQi].push({kind:'course', id:'MA 223'});
-        gridPlacedIds.add('MA 223');
-        remaining = remaining.filter(c=>c.course_id!=='MA 223');
-      }
-    }
+    window._calcAbcAnchors = calcAbcAnchors; // expose for main loop
   }
 
   // ── Pre-compute HSSA elective quota per year ────────────────────────────────
@@ -1082,6 +1078,19 @@ function generatePlan() {
     let qCr = existingQCr;
     let qCh = existingQCh;
     const pendingSat = new Set();
+
+    // Calc ABC anchors: place MA 221/222/223 first in their designated quarters
+    // before any other course scheduling, so they don't get crowded out.
+    const anchorKey = `${yi}-${qi2}`;
+    const anchors = (window._calcAbcAnchors && window._calcAbcAnchors[anchorKey]) || [];
+    anchors.forEach(courseId=>{
+      const c = courseById(courseId);
+      if (!c) return;
+      qCourses.push(c);
+      qCr += c.credits;
+      qCh += (c.contact_hours||c.credits);
+      pendingSat.add(courseId);
+    });
 
     // Determine if the HSSA quota for this year is already satisfied before we
     // start placing courses. We use this to gate upper-level courses: a course
