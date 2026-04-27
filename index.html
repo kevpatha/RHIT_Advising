@@ -877,12 +877,12 @@ function generatePlan() {
   }
 
   // ── Pre-compute HSSA elective quota per year ────────────────────────────────
-  // Goal: exactly 2 HSSA elective slots spread across Freshman/Sophomore/Junior/Senior,
-  // with at most 2 per year. This prevents stacking at the end.
-  const HSSA_TARGET_PER_YEAR = 2;
+  // Goal: spread generic HSSA electives evenly across all four years (1-2/year),
+  // never more than 2 total HSSA items (named + elective) in any one year.
+  const HSSA_MAX_PER_YEAR = 2;
   const planYears = [...new Set(allQ.filter(q=>q.yi<=seniorYi).map(q=>q.yi))];
 
-  // For each plan year, count required HSSA courses (type==='hssa') in that year.
+  // Count named HSSA courses (type==='hssa') landing in each plan year
   const hssaCoursesByYear = {};
   planYears.forEach(yi=>{ hssaCoursesByYear[yi] = 0; });
   COURSES.forEach(c=>{
@@ -892,7 +892,7 @@ function generatePlan() {
       hssaCoursesByYear[courseYi]++;
   });
 
-  // Elective slots already in the grid per year
+  // Elective slots already placed in grid per year
   const hssaElecInGrid = {};
   planYears.forEach(yi=>{
     hssaElecInGrid[yi] = yi<buildGrid.length
@@ -900,28 +900,31 @@ function generatePlan() {
       : 0;
   });
 
-  // Per-year elective quota = max(0, target - named courses - already-in-grid electives)
-  // Hard cap: no year gets more than 2 HSSA items total (named + elective)
-  const hssaPerYear = {};
+  // Capacity per year = max(0, HSSA_MAX_PER_YEAR - named courses already there - grid electives)
+  const hssaCapPerYear = {};
   planYears.forEach(yi=>{
-    hssaPerYear[yi] = Math.max(0,
-      HSSA_TARGET_PER_YEAR - (hssaCoursesByYear[yi]||0) - (hssaElecInGrid[yi]||0)
+    hssaCapPerYear[yi] = Math.max(0,
+      HSSA_MAX_PER_YEAR - (hssaCoursesByYear[yi]||0) - (hssaElecInGrid[yi]||0)
     );
   });
 
-  // Distribute total remaining HSSA elective slots across years, max 2/year
+  // Distribute elective slots evenly: round-robin 1 slot at a time per year
+  // so no year gets a second slot before every year has at least one.
+  const hssaPerYear = {};
+  planYears.forEach(yi=>{ hssaPerYear[yi] = 0; });
   let hssaElecRemaining = Math.ceil((eLeft['hssa']||0) / 4);
-  // Already accounted for done/grid electives; assign quotas greedily year by year
-  planYears.forEach(yi=>{
-    const give = Math.min(hssaPerYear[yi], hssaElecRemaining);
-    hssaPerYear[yi] = give;
-    hssaElecRemaining -= give;
-  });
-  // If any remain (unlikely), overflow into later years
-  let ri = 0;
-  while (hssaElecRemaining > 0 && ri < 20) {
-    planYears.forEach(yi=>{ if(hssaElecRemaining>0){hssaPerYear[yi]++;hssaElecRemaining--;} });
-    ri++;
+  let passLimit = 0;
+  while (hssaElecRemaining > 0 && passLimit < 10) {
+    let placed = 0;
+    planYears.forEach(yi=>{
+      if (hssaElecRemaining > 0 && hssaPerYear[yi] < hssaCapPerYear[yi]) {
+        hssaPerYear[yi]++;
+        hssaElecRemaining--;
+        placed++;
+      }
+    });
+    if (placed === 0) break; // no capacity left anywhere
+    passLimit++;
   }
 
   // ── Pre-compute Free elective placement: 1 in Junior year, 1 in Senior year ──
@@ -1106,15 +1109,18 @@ function generatePlan() {
         qCr+=4; qCh+=4; eScheduled['free']+=4; freeElecPlacedInYear[yi]++;
       }
 
-      // Tech electives: Senior year only. MS electives: any year.
+      // Tech electives: Senior year only, max 2 per quarter to spread across quarters.
+      // MS electives: any year, max 1 per quarter.
       const allowTechElec = (yi >= seniorYi);
       Object.entries(eLeft).forEach(([k,need])=>{
         if (k==='hssa' || k==='free') return;
         if (eScheduled[k] >= need) return;
         if (k==='tech' && !allowTechElec) return; // hold tech electives until Senior year
-        while (eScheduled[k] < need && qCr + 4 <= 18) {
+        const perQtrCap = k==='tech' ? 2 : 1; // spread tech across Senior quarters
+        let placedThisQ = 0;
+        while (eScheduled[k] < need && qCr + 4 <= 18 && placedThisQ < perQtrCap) {
           qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
-          qCr+=4; qCh+=4; eScheduled[k]+=4;
+          qCr+=4; qCh+=4; eScheduled[k]+=4; placedThisQ++;
         }
       });
 
