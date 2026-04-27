@@ -974,32 +974,24 @@ function generatePlan() {
     ? 0 : 0; // eLeft already accounts for done
   let freeRemSlots = Math.ceil((eLeft['free']||0) / 4);
 
-  // Assign free elective slots to specific plan year indices
+  // Assign free elective slots: 1 in Junior, 1 in Senior. 
+  // Any overflow spreads to earlier years.
   const freePerYear = {};
   planYears.forEach(yi=>{ freePerYear[yi] = 0; });
-  if (freeRemSlots > 0 && freeTotalSlots >= 2) {
-    // Target: Junior year (yi=2 in 0-indexed plan years) and Senior year (yi=3)
-    const juniorYi = Math.max(0, seniorYi - 1);
-    const seniorYiIdx = seniorYi;
-    [juniorYi, seniorYiIdx].forEach(yi=>{
-      if (freeRemSlots > 0 && yi < planYears.length && planYears.includes(yi)) {
-        // Check grid already has free elective here
+  if (freeRemSlots > 0) {
+    // Preferred years: Junior (seniorYi-1) and Senior (seniorYi), in that order
+    const freePrefYears = [Math.max(0, seniorYi - 1), seniorYi]
+      .filter(yi => planYears.includes(yi));
+    freePrefYears.forEach(yi=>{
+      if (freeRemSlots > 0) {
         const alreadyGrid = yi<buildGrid.length
           ? buildGrid[yi].reduce((s,q)=>s+q.filter(sl=>sl.kind==='elective'&&sl.electiveType==='free').length,0)
           : 0;
-        if (alreadyGrid === 0) {
-          freePerYear[yi] = 1;
-          freeRemSlots--;
-        }
+        if (alreadyGrid === 0) { freePerYear[yi] = 1; freeRemSlots--; }
       }
     });
-    // Any overflow: spread to remaining years
-    if (freeRemSlots > 0) {
-      planYears.forEach(yi=>{ if(freeRemSlots>0){freePerYear[yi]++;freeRemSlots--;} });
-    }
-  } else if (freeRemSlots > 0) {
-    // Spread evenly
-    planYears.forEach(yi=>{ if(freeRemSlots>0){freePerYear[yi]++;freeRemSlots--;} });
+    // Overflow: spread to any remaining years
+    planYears.forEach(yi=>{ if(freeRemSlots>0){ freePerYear[yi]++; freeRemSlots--; } });
   }
 
   const freeElecPlacedInYear = {}; // yi -> slots placed so far
@@ -1136,24 +1128,7 @@ function generatePlan() {
       }
     }
 
-    // Second pass: fit any remaining non-HSSA courses that were blocked by crCap
-    // HSSA-type courses are excluded here — they count toward the year's HSSA total
-    // and would consume the slot reserved for a generic HSSA elective.
-    if (reserveHSSA) {
-      for (const c of eligible.filter(c=>
-          c.type!=='hssa' &&
-          !pendingSat.has(c.course_id) &&
-          remaining.some(x=>x.course_id===c.course_id)
-      )) {
-        if (qCr + c.credits > 18) continue;
-        if (stdYear[c.course_id]!==undefined && stdYear[c.course_id]<yi) delayed.add(c.course_id);
-        qCourses.push(c);
-        qCr += c.credits;
-        qCh += (c.contact_hours||c.credits);
-        pendingSat.add(c.course_id);
-        remaining = remaining.filter(x=>x.course_id!==c.course_id);
-      }
-    }
+
 
     pendingSat.forEach(id=>sat.add(id));
     expandEquiv(sat);
@@ -1187,7 +1162,7 @@ function generatePlan() {
         if (k==='hssa' || k==='free') return;
         if (eScheduled[k] >= need) return;
         if (k==='tech' && !allowTechElec) return; // hold tech electives until Senior year
-        const perQtrCap = k==='tech' ? 1 : 1; // max 1 tech elective per quarter, spreads across Senior Fall/Winter/Spring
+        const perQtrCap = k==='tech' ? 2 : 1; // up to 2 tech per quarter so 4 slots fit across 3 Senior quarters
         let placedThisQ = 0;
         while (eScheduled[k] < need && qCr + 4 <= 18 && placedThisQ < perQtrCap) {
           qCourses.push({course_id:k+' Elective',title:reqs[k]?.label||k,credits:4,type:'elective-'+k});
