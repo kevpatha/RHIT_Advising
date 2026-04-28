@@ -784,6 +784,9 @@ function clearAll() {
 //  SUGGEST MODE — scheduler
 // ═══════════════════════════════════════════════════════════
 function generatePlan() {
+  try { _generatePlanImpl(); } catch(e) { alert('generatePlan error: ' + e.message + '\n' + e.stack?.split('\n').slice(0,4).join('\n')); }
+}
+function _generatePlanImpl() {
   window._calcAbcAnchors = {}; // clear anchors from previous run
   const startQ  = document.getElementById('startQuarter').value;
   const startYr = document.getElementById('startYear').value;
@@ -851,9 +854,12 @@ function generatePlan() {
       if (c.course_id === 'ME 445' && roboticsCapstone !== 'ME 445') return false;
       return true;
     }
-    return plan.schedule.some(s=>
+    // Robotics uses standard plan schedule as its core course base
+    const scheduleToCheck = isRobotics ? (PLANS['standard']?.schedule || []) : plan.schedule;
+    return scheduleToCheck.some(s=>
       s.courseId===c.course_id ||
-      (!isRobotics && s.courseId==='EM or ME 306' && c.course_id===controlChoice)
+      (!isRobotics && s.courseId==='EM or ME 306' && c.course_id===controlChoice) ||
+      (isRobotics && s.courseId==='EM or ME 306' && c.course_id==='ME 306')
     );
   });
 
@@ -867,7 +873,10 @@ function generatePlan() {
   // requirement — they do NOT count toward the eLeft['hssa'] credit total.
 
   const stdYear = {};
-  plan.schedule.forEach(s=>{
+  const scheduleForStdYear = isRobotics
+    ? (PLANS['standard']?.schedule || [])
+    : plan.schedule;
+  scheduleForStdYear.forEach(s=>{
     if(!stdYear[s.courseId]) stdYear[s.courseId]=yearNames.indexOf(s.yearLabel);
     if(s.courseId==='EM or ME 306') stdYear[controlChoice]=yearNames.indexOf(s.yearLabel);
     if(s.courseId==='EM or ME 306') stdYear['ME 306']=yearNames.indexOf(s.yearLabel);
@@ -1273,7 +1282,7 @@ function generatePlan() {
   // Mark delayed courses so renderBuild can flag them
   lastDelayed=delayed;
   renderBuild();
-}
+} // end _generatePlanImpl
 
 // ═══════════════════════════════════════════════════════════
 //  SUGGEST MODE — render
