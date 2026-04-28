@@ -795,6 +795,7 @@ function _generatePlanImpl() {
 
   // Build ordered quarter sequence (up to 6 years × 4 quarters)
   const yearNames = getPlanYearNames();
+  const isRobotics = activePlanId === 'robotics';
   const sy = yearNames.indexOf(startYr);
   const sqIdx = ALL_QUARTERS.indexOf(startQ);
   const allQ = [];
@@ -836,7 +837,6 @@ function _generatePlanImpl() {
     else if (s.kind==='elective') gridElecPlaced[s.electiveType]=(gridElecPlaced[s.electiveType]||0)+(s.credits||4);
   })));
 
-  const isRobotics = activePlanId === 'robotics';
   const needed = COURSES.filter(c=>{
     if (getState(c.course_id)!==0) return false;
     if (preRhitIds.has(c.course_id)) return false;
