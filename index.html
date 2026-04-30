@@ -788,7 +788,6 @@ function generatePlan() {
 }
 function _generatePlanImpl() {
   window._calcAbcAnchors = {}; // clear anchors from previous run
-  window._es201Anchor = {};    // clear ES 201 anchor from previous run
   const startQ  = document.getElementById('startQuarter').value;
   const startYr = document.getElementById('startYear').value;
   const plan    = activePlan();
@@ -957,24 +956,6 @@ function _generatePlanImpl() {
     window._calcAbcAnchors = calcAbcAnchors; // expose for main loop
   }
 
-  // ── Pre-placement: anchor ES 201 to Sophomore Fall for all plans ──────────
-  // ES 201 is a bottleneck prereq for many ME courses. Lock it into Sophomore Fall
-  // so the scheduler never lets it drift to Winter or get displaced by other courses.
-  window._es201Anchor = {};
-  {
-    const sophYi = yearNames.indexOf('Sophomore') >= 0
-      ? yearNames.indexOf('Sophomore')
-      : yearNames.indexOf('Year 2') >= 0 ? yearNames.indexOf('Year 2') : 1;
-    const fallQi = ALL_QUARTERS.indexOf('Fall');
-    const es201  = courseById('ES 201');
-    const es201Needed = es201 && remaining.some(c=>c.course_id==='ES 201');
-    if (es201Needed && sophYi >= safeYi && sophYi < buildGrid.length) {
-      if (!buildGrid[sophYi][fallQi].some(s=>s.kind==='course'&&s.id==='ES 201')) {
-        window._es201Anchor[`${sophYi}-${fallQi}`] = 'ES 201';
-      }
-    }
-  }
-
   // ── Pre-compute HSSA elective quota per year ────────────────────────────────
   // Goal: spread generic HSSA electives evenly across all four years (1-2/year),
   // never more than 2 total HSSA items (named + elective) in any one year.
@@ -1119,7 +1100,10 @@ function _generatePlanImpl() {
       // 3. Capstones always last
       if (a.type==='capstone'&&b.type!=='capstone') return 1;
       if (b.type==='capstone'&&a.type!=='capstone') return -1;
-      // 4. Primary-quarter offerings before alt-quarter
+      // 4. ES 201 is a bottleneck prereq — always place it before other same-year courses
+      if (a.course_id==='ES 201') return -1;
+      if (b.course_id==='ES 201') return 1;
+      // 5. Primary-quarter offerings before alt-quarter
       return (isAlt(a,quarter)?1:0)-(isAlt(b,quarter)?1:0);
     });
 
@@ -1171,20 +1155,6 @@ function _generatePlanImpl() {
       qCh += (c.contact_hours||c.credits);
       pendingSat.add(courseId);
     });
-
-    // ES 201 anchor: ensure it lands in Sophomore Fall before any other course
-    // takes up the credit space, as it is a bottleneck prereq for many ME courses.
-    const es201AnchorId = window._es201Anchor && window._es201Anchor[anchorKey];
-    if (es201AnchorId && remaining.some(c=>c.course_id===es201AnchorId)) {
-      const c = courseById(es201AnchorId);
-      if (c && prereqsMet(c, sat) && qCr + c.credits <= crCap) {
-        qCourses.push(c);
-        qCr += c.credits;
-        qCh += (c.contact_hours||c.credits);
-        pendingSat.add(es201AnchorId);
-        remaining = remaining.filter(x=>x.course_id!==es201AnchorId);
-      }
-    }
 
     // Determine if the HSSA quota for this year is already satisfied before we
     // start placing courses. We use this to gate upper-level courses: a course
