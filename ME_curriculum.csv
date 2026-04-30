@@ -18,7 +18,7 @@ BIO 101,Essential Biology,4,6,core,Fall; Winter; Spring,,,all,standard:Sophomore
 MA 221,Matrix Algebra & Diff Eqns I,4,4,core,Fall; Winter,Spring,MA 113,all,,
 MA 222,Matrix Algebra & Diff Eqns II,4,4,core,Fall; Winter; Spring,,MA 221,all,,
 MA 223,Engineering Statistics I,4,4,core,Fall; Spring,Winter,MA 221,all,,
-ES 201,Conservation & Accounting Principles,4,4,core,Fall,Winter,PH 111; EM 121; MA 113,all,,Grade of C or better required for ES 312
+ES 201,Conservation & Accounting Principles,4,4,core,Fall,Winter,PH 111; EM 121; MA 113,all,all:Sophomore:Fall,Grade of C or better required for ES 312
 ES 213,Electrical Systems,4,6,core,Fall,Winter; Spring,PH 112; MA 113; EM 121,all,,
 ES 214,Mechanical Systems,4,6,core,Winter,Spring,ME 123; MA 221; ES 201,all,,
 EM 204,Statics & Mechanics of Materials II,4,4,core,Fall,Winter; Spring,EM 121,all,,
