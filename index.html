@@ -1590,132 +1590,125 @@ let scheduledCourseIds = new Set();
 let scheduledElecCounts = {};
 
 function exportExcel() {
-  if (!lastSchedule || !lastSchedule.length) {
-    alert('Generate a plan first, then download.');
+  // Build schedule data directly from buildGrid so manual edits are always reflected.
+  const plan = lastSchedulePlan || activePlan();
+  const yearNames = getPlanYearNames();
+
+  // Detect whether any Summer slot has content
+  const hasSummer = buildGrid.some((yr,yi) => yr[ALL_QUARTERS.indexOf('Summer')].length > 0);
+  const quarters = hasSummer ? ['Fall','Winter','Spring','Summer'] : ['Fall','Winter','Spring'];
+
+  // Flatten buildGrid into a schedule structure identical to what lastSchedule used
+  const gridSchedule = [];
+  for (let yi = 0; yi < buildGrid.length; yi++) {
+    const yr = yearNames[yi] || `Year ${yi+1}`;
+    for (const qName of quarters) {
+      const qi = ALL_QUARTERS.indexOf(qName);
+      const slots = buildGrid[yi][qi];
+      if (!slots.length) continue;
+      const courses = slots.map(s => {
+        if (s.kind === 'course') {
+          const c = courseById(s.id);
+          return c
+            ? { course_id: c.course_id, title: c.title, credits: c.credits, type: c.type||'core' }
+            : { course_id: s.id, title: s.id, credits: 0, type: 'core' };
+        } else {
+          const req = activeElecReqs()[s.electiveType] || {};
+          return { course_id: s.electiveType+' Elective', title: req.label||s.electiveType, credits: s.credits||4, type: 'elective-'+s.electiveType };
+        }
+      });
+      const qCr = courses.reduce((s,c)=>s+c.credits, 0);
+      if (courses.length) gridSchedule.push({ year: yr, quarter: qName, courses, credits: qCr });
+    }
+  }
+
+  if (!gridSchedule.length) {
+    alert('Add courses to the plan first, then download.');
     return;
   }
 
   const wb = XLSX.utils.book_new();
-  const plan = lastSchedulePlan;
-  const quarters = lastSchedule.length && lastSchedule.some(q=>q.quarter==='Summer')
-    ? ['Fall','Winter','Spring','Summer'] : ['Fall','Winter','Spring'];
 
-  // ── Sheet 1: Schedule grid (mirrors flowchart layout) ──
+  // ── Sheet 1: Schedule grid ──
   const ws1Data = [];
-
-  // Header row
-  const headerRow = ['Year', ...quarters.map(q=>q+' — Courses'), ...quarters.map(q=>q+' — Credits'), 'Year Total'];
-  // Simpler: one row per quarter with all info
-  // Actually build it year-grouped with courses stacked per quarter cell (as text)
-
-  // Title rows
   ws1Data.push([`ME Degree Plan — ${plan?.meta?.name||''}`, '', '', '']);
   ws1Data.push([`Generated ${new Date().toLocaleDateString()}`, '', '', '']);
   ws1Data.push([]);
-
-  // Column headers
   ws1Data.push(['Year / Quarter', ...quarters, 'Quarter Credits']);
 
   const byYear = {};
-  lastSchedule.forEach(q => { (byYear[q.year] = byYear[q.year]||[]).push(q); });
-
-  const years = [...new Set(lastSchedule.map(q=>q.year))];
+  gridSchedule.forEach(q => { (byYear[q.year] = byYear[q.year]||[]).push(q); });
+  const years = [...new Set(gridSchedule.map(q=>q.year))];
 
   years.forEach(yr => {
     const qs = byYear[yr];
-    // Find the max number of courses in any quarter this year
     const maxCourses = Math.max(...quarters.map(qName => {
       const qd = qs.find(q=>q.quarter===qName);
       return qd ? qd.courses.length : 0;
     }));
-
-    // Year header row (merged visually via bold in openpyxl — here we just mark it)
     ws1Data.push([yr, ...quarters.map(()=>''), '']);
-
-    // One row per course slot
     for (let i = 0; i < maxCourses; i++) {
-      const row = [''];  // year column blank after first
+      const row = [''];
       quarters.forEach(qName => {
         const qd = qs.find(q=>q.quarter===qName);
         const c = qd?.courses[i];
         row.push(c ? `${c.course_id} — ${c.title} (${c.credits}cr)` : '');
       });
-      // Credits column: only on first row of this quarter group
       row.push(i===0 ? quarters.map(qName=>{
         const qd=qs.find(q=>q.quarter===qName);
         return qd?`${qName}: ${qd.credits}cr`:'';
       }).filter(Boolean).join(' | ') : '');
       ws1Data.push(row);
     }
-    ws1Data.push([]); // blank between years
+    ws1Data.push([]);
   });
 
-  // Summary section
-  const totCr = lastSchedule.reduce((s,q)=>s+q.credits,0);
-  const doneCr = COURSES.reduce((s,c)=>getState(c.course_id)===2?s+c.credits:s,0)
-    + Object.entries(electiveDone).reduce((s,[k,v])=>s+v*4,0)
-    + (plan?.preRhit||[]).reduce((s,c)=>s+(c.credits||0),0);
+  const totCr = gridSchedule.reduce((s,q)=>s+q.credits, 0);
+  const doneCr = COURSES.reduce((s,c)=>getState(c.course_id)===2?s+c.credits:s, 0)
+    + Object.entries(electiveDone).reduce((s,[k,v])=>s+v, 0)
+    + (plan?.preRhit||[]).reduce((s,c)=>s+(c.credits||0), 0);
   ws1Data.push(['Summary', '', '', '']);
-  ws1Data.push(['Credits remaining', totCr, '', '']);
+  ws1Data.push(['Credits in plan', totCr, '', '']);
   ws1Data.push(['Credits completed', doneCr, '', '']);
   ws1Data.push(['Total credits', totCr+doneCr, '', '']);
   ws1Data.push(['Plan', plan?.meta?.name||'', '', '']);
   ws1Data.push(['Control course', controlChoice, '', '']);
 
   const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
-
-  // Column widths
   ws1['!cols'] = [
-    {wch:14},  // Year
-    {wch:38},  // Fall
-    {wch:38},  // Winter
-    {wch:38},  // Spring
-    ...(quarters.length===4?[{wch:38}]:[]),  // Summer if present
-    {wch:30},  // Credits
+    {wch:14}, {wch:38}, {wch:38}, {wch:38},
+    ...(quarters.length===4?[{wch:38}]:[]),
+    {wch:30},
   ];
-
   XLSX.utils.book_append_sheet(wb, ws1, 'Schedule');
 
   // ── Sheet 2: Flat course list ──
-  const ws2Data = [
-    ['Quarter', 'Year', 'Course ID', 'Course Title', 'Credits', 'Type', 'Notes']
-  ];
-  lastSchedule.forEach(q => {
+  const ws2Data = [['Quarter', 'Year', 'Course ID', 'Course Title', 'Credits', 'Type', 'Notes']];
+  gridSchedule.forEach(q => {
     q.courses.forEach(c => {
-      ws2Data.push([
-        q.quarter, q.year,
-        c.course_id, c.title, c.credits,
-        c.type||'core',
-        ''
-      ]);
+      ws2Data.push([q.quarter, q.year, c.course_id, c.title, c.credits, c.type||'core', '']);
     });
   });
-
   const ws2 = XLSX.utils.aoa_to_sheet(ws2Data);
   ws2['!cols'] = [{wch:10},{wch:12},{wch:12},{wch:38},{wch:8},{wch:14},{wch:20}];
   XLSX.utils.book_append_sheet(wb, ws2, 'Course List');
 
   // ── Sheet 3: Completed courses ──
   const ws3Data = [['Course ID', 'Course Title', 'Credits', 'Status']];
-  // Pre-RHIT credits
   (plan?.preRhit||[]).forEach(c=>{
     if (c.id||c.title) ws3Data.push([c.id||'—', c.title||'Pre-RHIT Credit', c.credits, 'Pre-RHIT / Transfer']);
   });
-  // Checked-off courses
   COURSES.filter(c=>getState(c.course_id)===2).forEach(c=>{
     ws3Data.push([c.course_id, c.title, c.credits, 'Completed']);
   });
-  // Elective credits done
   Object.entries(electiveDone).forEach(([k,v])=>{
     const req=activeElecReqs()[k];
-    for (let i=0;i<v;i++) ws3Data.push(['—', req?.label||k, 4, 'Completed elective']);
+    if (v > 0) ws3Data.push(['—', req?.label||k, v, 'Completed elective credits']);
   });
-
   const ws3 = XLSX.utils.aoa_to_sheet(ws3Data);
   ws3['!cols'] = [{wch:12},{wch:38},{wch:8},{wch:22}];
   XLSX.utils.book_append_sheet(wb, ws3, 'Completed Courses');
 
-  // Download
   const planSlug = (plan?.meta?.name||'plan').replace(/[^a-z0-9]/gi,'-').toLowerCase();
   XLSX.writeFile(wb, `ME_schedule_${planSlug}.xlsx`);
 }
